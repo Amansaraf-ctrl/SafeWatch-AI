@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Datasets and Large Binary Checkpoints (Exempted to respect GitHub 100MB limit)
+YOLOX/datasets/
+datasets/
+*.pth
+*.pt
+*.onnx
+*.tar.gz
+*.zip
+
+# Dynamic Runtime Database & Evidence Storage
+safewatch.db
+safewatch.db-journal
+static/snapshots/*
+!static/snapshots/.gitkeep
+custom_footage/*
+!custom_footage/.gitkeep
+known_faces/*
+!known_faces/.gitkeep
+
+# Logs and Checkpoints
+*.log
+.system_generated/
+YOLOX/YOLOX_outputs/

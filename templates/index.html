@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeWatch AI — Industrial Safety Command & Compliance Center</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            base: '#0B0F19',
+                            card: '#121927',
+                            cardBorder: '#1F2A3E',
+                            subtle: '#26344B',
+                            accent: '#F59E0B',
+                            danger: '#EF4444',
+                            success: '#10B981',
+                            cyan: '#06B6D4'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0B0F19; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #1F2A3E; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #F59E0B; }
+        .glass-panel {
+            background: rgba(18, 25, 39, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(31, 42, 62, 0.9);
+        }
+        .hud-corner {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-color: #F59E0B;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-[#080B11] text-gray-100 min-h-screen flex flex-col selection:bg-amber-500 selection:text-black">
+
+    <!-- Top Command Navigation Bar -->
+    <header class="glass-panel border-b border-brand-cardBorder sticky top-0 z-40 px-4 lg:px-8 py-2.5">
+        <div class="max-w-[1720px] mx-auto flex items-center justify-between">
+            
+            <!-- Left: Logo & Engine Identification -->
+            <div class="flex items-center space-x-4">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 flex items-center justify-center shadow-lg shadow-amber-500/20 border border-amber-400/30">
+                    <i class="fa-solid fa-shield-halved text-white text-lg"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-lg font-extrabold tracking-tight text-white uppercase">SafeWatch<span class="text-amber-500">.AI</span></span>
+                        <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping mr-1"></span>
+                            <span>GPU TENSOR CORE</span>
+                        </span>
+                    </div>
+                    <p class="text-[11px] text-gray-400 font-mono">Autonomous PPE Computer Vision & Face Verification</p>
+                </div>
+            </div>
+
+            <!-- Middle: Live Telemetry & Channel Selector -->
+            <div class="hidden xl:flex items-center space-x-3 bg-brand-base px-3 py-1.5 rounded-xl border border-brand-cardBorder">
+                <!-- Clock -->
+                <div class="flex items-center space-x-2 border-r border-brand-cardBorder pr-3 text-xs font-mono text-gray-300">
+                    <i class="fa-regular fa-clock text-amber-500"></i>
+                    <span id="live-clock">--:--:-- IST</span>
+                </div>
+
+                <!-- Video Channel Switcher Pills -->
+                <div class="flex items-center space-x-1 text-xs">
+                    <button id="btn-chan-footage" onclick="switchChannel('footage')" class="px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-industry"></i>
+                        <span>Site Footage</span>
+                    </button>
+                    <button id="btn-chan-cam" onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-video"></i>
+                        <span>Live Laptop Cam</span>
+                    </button>
+                </div>
+
+                <!-- FPS / Inference Latency Pill -->
+                <div class="border-l border-brand-cardBorder pl-3 flex items-center space-x-2 text-xs font-mono">
+                    <span class="text-gray-400">LATENCY:</span>
+                    <span id="telemetry-latency" class="text-emerald-400 font-semibold">28ms</span>
+                    <span class="text-gray-500">|</span>
+                    <span id="telemetry-fps" class="text-amber-400 font-semibold">35 FPS</span>
+                </div>
+            </div>
+
+            <!-- Right: Action Center -->
+            <div class="flex items-center space-x-2.5">
+                <!-- Upload Site Video Button -->
+                <button onclick="openFootageModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold flex items-center space-x-2 transition">
+                    <i class="fa-solid fa-file-video text-amber-400"></i>
+                    <span class="hidden sm:inline">Upload Site Video</span>
+                </button>
+
+                <!-- Target Personnel Button (Aman & Vishesh) -->
+                <button onclick="openPersonnelModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold flex items-center space-x-2 transition">
+                    <i class="fa-solid fa-user-check text-cyan-400"></i>
+                    <span>Personnel (Aman & Vishesh)</span>
+                </button>
+
+                <!-- Enroll Face Button -->
+                <button onclick="openEnrollModal()" class="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-black font-bold rounded-lg text-xs shadow-md shadow-amber-500/20 flex items-center space-x-1.5 transition">
+                    <i class="fa-solid fa-user-plus"></i>
+                    <span>Enroll Face</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Top KPI Telemetry HUD Bar -->
+    <section class="max-w-[1720px] mx-auto px-4 lg:px-8 pt-5 w-full">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+            <!-- Metric 1: Overall Compliance Rate -->
+            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden">
+                <div class="flex items-center space-x-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                        <i class="fa-solid fa-shield-halved text-xl"></i>
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Site Compliance Rate</p>
+                        <h3 id="hud-compliance" class="text-2xl font-black text-white mt-0.5">100.0%</h3>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">TARGET: 100%</span>
+                </div>
+            </div>
+
+            <!-- Metric 2: Active Violations -->
+            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden">
+                <div class="flex items-center space-x-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+                        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                            <p class="text-[11px] font-bold text-red-400 uppercase tracking-wider font-mono">Active Violations</p>
+                        </div>
+                        <h3 id="hud-active" class="text-2xl font-black text-red-500 mt-0.5">0</h3>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-gray-400 font-mono">REQUIRE ACTION</span>
+                </div>
+            </div>
+
+            <!-- Metric 3: Total Audited Incidents -->
+            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
+                <div class="flex items-center space-x-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                        <i class="fa-solid fa-list-check text-xl"></i>
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Total Recorded Events</p>
+                        <h3 id="hud-total" class="text-2xl font-black text-white mt-0.5">0</h3>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-gray-400 font-mono">TODAY</span>
+                </div>
+            </div>
+
+            <!-- Metric 4: Closed / Resolved Incidents -->
+            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
+                <div class="flex items-center space-x-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                        <i class="fa-solid fa-circle-check text-xl"></i>
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Resolved & Cleared</p>
+                        <h3 id="hud-resolved" class="text-2xl font-black text-emerald-400 mt-0.5">0</h3>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-gray-400 font-mono">VERIFIED</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Command Center Grid: Left 8 cols Video, Right 4 cols Incident Feed -->
+    <main class="max-w-[1720px] mx-auto px-4 lg:px-8 py-5 w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+        <!-- Left Column: Industrial CCTV Viewport (8 Cols) -->
+        <div class="lg:col-span-8 flex flex-col space-y-3.5">
+            <div class="glass-panel rounded-2xl overflow-hidden shadow-2xl flex flex-col relative border border-brand-cardBorder">
+                
+                <!-- CCTV Header Strip -->
+                <div class="px-4 py-2.5 bg-brand-base border-b border-brand-cardBorder flex items-center justify-between text-xs font-mono">
+                    <div class="flex items-center space-x-3">
+                        <div class="flex items-center space-x-1.5 text-red-500 font-bold">
+                            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                            <span>LIVE INGEST</span>
+                        </div>
+                        <span class="text-gray-500">|</span>
+                        <span id="active-channel-name" class="text-gray-300 font-semibold uppercase">CHANNEL 1: INDUSTRIAL SITE CCTV</span>
+                    </div>
+
+                    <!-- Active Video Selector Dropdown -->
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400 hidden sm:inline">Footage:</span>
+                        <select id="footage-selector" onchange="changeVideoFile(this.value)" class="bg-brand-card border border-brand-cardBorder text-gray-200 text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-amber-500 font-mono">
+                            <option value="">Awaiting Footage...</option>
+                        </select>
+                        <button onclick="refreshStream()" title="Reload Stream" class="w-7 h-7 rounded-lg bg-brand-card hover:bg-brand-cardBorder flex items-center justify-center text-gray-300 transition">
+                            <i class="fa-solid fa-arrows-rotate text-[11px]"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Video Canvas Viewport -->
+                <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden select-none">
+                    <!-- CCTV Screen Corner HUD Brackets -->
+                    <div class="hud-corner top-3 left-3 border-t-2 border-l-2"></div>
+                    <div class="hud-corner top-3 right-3 border-t-2 border-r-2"></div>
+                    <div class="hud-corner bottom-3 left-3 border-b-2 border-l-2"></div>
+                    <div class="hud-corner bottom-3 right-3 border-b-2 border-r-2"></div>
+
+                    <!-- Live Stream Img -->
+                    <img id="video-stream" src="/video_feed?source=footage" alt="SafeWatch Live Feed" class="w-full h-full object-contain">
+
+                    <!-- Overlay Bottom Legend -->
+                    <div class="absolute bottom-4 left-4 bg-brand-base/90 backdrop-blur-md border border-brand-cardBorder px-3.5 py-1.5 rounded-lg flex items-center space-x-4 text-xs font-mono pointer-events-none">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-emerald-500"></span>
+                            <span class="text-gray-300">Compliant</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-red-500"></span>
+                            <span class="text-gray-300">Violation</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-cyan-400"></span>
+                            <span class="text-gray-300">Target Match (Aman/Vishesh)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Telemetry & Controls Toolbar -->
+                <div class="px-4 py-2.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between text-xs">
+                    <div class="flex items-center space-x-2">
+                        <button onclick="switchChannel('footage')" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-industry text-amber-400"></i>
+                            <span>Site Footage Mode</span>
+                        </button>
+                        <button onclick="switchChannel('cam')" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-camera text-blue-400"></i>
+                            <span>Live Laptop Cam</span>
+                        </button>
+                        <button onclick="openAuditModal()" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-magnifying-glass-chart text-emerald-400"></i>
+                            <span>Audit Still Photo</span>
+                        </button>
+                    </div>
+
+                    <div class="font-mono text-[11px] text-gray-400 flex items-center space-x-2">
+                        <span>ENGINE:</span>
+                        <span class="text-white font-semibold">YOLOX-S FP16 + SFACE</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target 5-Class Legend -->
+            <div class="glass-panel rounded-xl p-3 text-xs flex flex-wrap items-center justify-between gap-2 border-brand-cardBorder font-mono">
+                <span class="font-bold text-gray-300">SafeWatch AI 5-Class Target Protocol:</span>
+                <div class="flex flex-wrap gap-2">
+                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">0: Helmet</span>
+                    <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30">1: No_helmet</span>
+                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">2: Safety_shoes</span>
+                    <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">3: No_SafetyShoes</span>
+                    <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">4: Person</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Violations Feed & Face Verification Log (4 Cols) -->
+        <div class="lg:col-span-4 flex flex-col space-y-3.5">
+            <div class="glass-panel rounded-2xl flex flex-col h-[700px] shadow-2xl overflow-hidden border border-brand-cardBorder">
+                
+                <!-- Section Header -->
+                <div class="p-3.5 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                    <div>
+                        <h2 class="font-bold text-sm text-white flex items-center space-x-2">
+                            <i class="fa-solid fa-bell text-amber-500"></i>
+                            <span>Violation Evidence & Identity Feed</span>
+                        </h2>
+                        <p class="text-[11px] text-gray-400 font-mono mt-0.5">Real-time snapshots & identity verification</p>
+                    </div>
+
+                    <!-- Filter Tabs -->
+                    <div class="flex items-center space-x-1 bg-brand-card p-0.5 rounded-lg text-xs font-mono">
+                        <button onclick="setFilter('active')" id="tab-active" class="px-2.5 py-1 rounded-md font-semibold bg-red-500 text-white shadow">Active</button>
+                        <button onclick="setFilter('all')" id="tab-all" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">All</button>
+                        <button onclick="setFilter('resolved')" id="tab-resolved" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">Resolved</button>
+                    </div>
+                </div>
+
+                <!-- Incident Stream Cards Container -->
+                <div id="violations-container" class="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scroll">
+                    <div class="text-center py-24 text-gray-500 text-xs font-mono">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 text-amber-500"></i>
+                        <p>Syncing violations from SafeWatch engine...</p>
+                    </div>
+                </div>
+
+                <!-- Footer Summary Bar -->
+                <div class="p-2.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between text-xs text-gray-400 font-mono">
+                    <span id="incident-status-summary">Active Violations: 0</span>
+                    <button onclick="fetchViolations()" class="text-amber-400 hover:underline flex items-center space-x-1">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        <span>Refresh Log</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal: Upload Industrial Site Video -->
+    <div id="footage-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-file-video text-amber-500 text-lg"></i>
+                    <div>
+                        <h3 class="font-bold text-white text-sm">Upload Industrial Site Footage</h3>
+                        <p class="text-[11px] text-gray-400 font-mono">Supports .MP4, .AVI, .MOV, .MKV</p>
+                    </div>
+                </div>
+                <button onclick="closeFootageModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div class="border-2 border-dashed border-brand-cardBorder rounded-xl p-6 text-center hover:border-amber-500/50 transition cursor-pointer" onclick="document.getElementById('footage-file-input').click()">
+                    <i class="fa-solid fa-cloud-arrow-up text-3xl text-amber-500 mb-2"></i>
+                    <p class="text-xs font-semibold text-gray-200">Click to select industrial site video</p>
+                    <p class="text-[11px] text-gray-400 font-mono mt-1">Video will loop continuously on CCTV Channel 1 with full AI PPE audit</p>
+                    <input type="file" id="footage-file-input" accept="video/*" class="hidden" onchange="handleFootageSelected(event)">
+                </div>
+
+                <div id="footage-upload-status" class="hidden text-xs p-3 rounded-lg font-mono"></div>
+
+                <div class="flex justify-end space-x-2">
+                    <button onclick="closeFootageModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg text-xs font-mono">Cancel</button>
+                    <button id="footage-upload-btn" onclick="submitFootageUpload()" class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg text-xs font-mono shadow-md shadow-amber-500/20">Upload & Stream</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Personnel Directory (Aman & Vishesh) -->
+    <div id="personnel-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-user-check text-cyan-400 text-lg"></i>
+                    <div>
+                        <h3 class="font-bold text-white text-sm">Authorized Personnel: Aman & Vishesh</h3>
+                        <p class="text-[11px] text-gray-400 font-mono">SFace 128-d Feature Matching Directory</p>
+                    </div>
+                </div>
+                <button onclick="closePersonnelModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <p class="text-xs text-gray-400 font-mono">The face recognition system is restricted specifically to recognize these two personnel on site:</p>
+                
+                <div id="personnel-cards-container" class="space-y-3">
+                    <!-- Populated dynamically via JS -->
+                </div>
+
+                <div class="pt-2 flex justify-end">
+                    <button onclick="closePersonnelModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg text-xs font-mono">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Enroll Face (Pre-configured for Aman & Vishesh) -->
+    <div id="enroll-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-user-plus text-amber-500 text-lg"></i>
+                    <div>
+                        <h3 class="font-bold text-white text-sm">Enroll Personnel Face</h3>
+                        <p class="text-[11px] text-gray-400 font-mono">Target: Aman or Vishesh</p>
+                    </div>
+                </div>
+                <button onclick="closeEnrollModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form onsubmit="handleEnrollSubmit(event)" class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1 font-mono">Select Personnel *</label>
+                    <select id="enroll-name" required class="w-full px-3 py-2 bg-brand-base border border-brand-cardBorder rounded-lg text-sm text-white focus:outline-none focus:border-amber-500 font-mono">
+                        <option value="Aman">Aman (EMP-01)</option>
+                        <option value="Vishesh">Vishesh (EMP-02)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1 font-mono">Worker ID / Badge</label>
+                    <input type="text" id="enroll-id" placeholder="e.g. EMP-01" class="w-full px-3 py-2 bg-brand-base border border-brand-cardBorder rounded-lg text-sm text-white focus:outline-none focus:border-amber-500 font-mono">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1 font-mono">Frontal Photo *</label>
+                    <input type="file" id="enroll-file" accept="image/*" required class="w-full text-xs text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-card file:text-amber-400 hover:file:bg-brand-cardBorder cursor-pointer font-mono">
+                </div>
+
+                <div id="enroll-status" class="hidden text-xs p-3 rounded-lg font-mono"></div>
+
+                <div class="pt-2 flex items-center justify-end space-x-2">
+                    <button type="button" onclick="closeEnrollModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg text-xs font-mono">Cancel</button>
+                    <button type="submit" id="enroll-submit-btn" class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg text-xs font-mono shadow-md shadow-amber-500/20">Enroll Face</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Evidence Snapshot Lightbox -->
+    <div id="snapshot-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-3.5 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                <div>
+                    <h3 class="font-bold text-white text-sm flex items-center space-x-2">
+                        <i class="fa-solid fa-camera-retro text-amber-500"></i>
+                        <span id="modal-worker-title">Violation Evidence</span>
+                    </h3>
+                    <p class="text-[11px] text-gray-400 font-mono" id="modal-timestamp">Recorded: --</p>
+                </div>
+                <button onclick="closeSnapshotModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-4 bg-black flex items-center justify-center max-h-[70vh] overflow-hidden">
+                <img id="modal-snapshot-img" src="" alt="Violation Snapshot" class="max-h-[65vh] w-auto object-contain rounded-lg">
+            </div>
+            <div class="p-3.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between">
+                <div class="flex items-center space-x-2" id="modal-missing-badges"></div>
+                <a id="modal-download-btn" href="" download class="px-4 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardBorder text-xs font-semibold text-white font-mono flex items-center space-x-2 transition">
+                    <i class="fa-solid fa-download text-amber-400"></i>
+                    <span>Download Evidence</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Still Photo Audit -->
+    <div id="audit-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+                <h3 class="font-bold text-white text-sm flex items-center space-x-2 font-mono">
+                    <i class="fa-solid fa-magnifying-glass-chart text-amber-500"></i>
+                    <span>Still Photo PPE & Face Audit</span>
+                </h3>
+                <button onclick="closeAuditModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <input type="file" id="audit-file-input" accept="image/*" class="w-full text-xs text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-card file:text-amber-400 hover:file:bg-brand-cardBorder cursor-pointer font-mono">
+                
+                <div id="audit-result-view" class="hidden space-y-3">
+                    <div class="bg-black rounded-lg overflow-hidden border border-brand-cardBorder max-h-[380px] flex items-center justify-center">
+                        <img id="audit-result-img" src="" class="max-h-[370px] object-contain">
+                    </div>
+                    <div id="audit-result-text" class="text-xs p-3 bg-brand-base rounded-lg text-gray-300 font-mono"></div>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button onclick="closeAuditModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg text-xs font-mono">Close</button>
+                    <button onclick="runAuditUpload()" id="audit-btn" class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg text-xs font-mono">Analyze Photo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend Scripting -->
+    <script>
+        let currentFilter = 'active';
+        let currentChannel = 'footage';
+        let currentVideoFile = '';
+        let violationsCache = [];
+        let selectedFootageFile = null;
+
+        // Live Clock
+        function updateClock() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-IN', { hour12: false }) + ' IST';
+            document.getElementById('live-clock').innerText = timeStr;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Switch channel between 'footage' and 'cam'
+        function switchChannel(channel) {
+            currentChannel = channel;
+            const btnFootage = document.getElementById('btn-chan-footage');
+            const btnCam = document.getElementById('btn-chan-cam');
+            const chanName = document.getElementById('active-channel-name');
+            const img = document.getElementById('video-stream');
+
+            if (channel === 'footage') {
+                btnFootage.className = 'px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition';
+                btnCam.className = 'px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                chanName.innerText = 'CHANNEL 1: INDUSTRIAL SITE CCTV';
+                const videoParam = currentVideoFile ? `&video=${encodeURIComponent(currentVideoFile)}` : '';
+                img.src = `/video_feed?source=footage${videoParam}&t=${Date.now()}`;
+            } else {
+                btnCam.className = 'px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition';
+                btnFootage.className = 'px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                chanName.innerText = 'CHANNEL 2: LAPTOP WEBCAM LIVE FEED';
+                img.src = `/video_feed?source=cam&t=${Date.now()}`;
+            }
+        }
+
+        function refreshStream() {
+            switchChannel(currentChannel);
+        }
+
+        function changeVideoFile(val) {
+            currentVideoFile = val;
+            if (currentChannel === 'footage') {
+                switchChannel('footage');
+            }
+        }
+
+        // Fetch Footages list
+        async function fetchFootages() {
+            try {
+                const res = await fetch('/api/footages');
+                const data = await res.json();
+                const sel = document.getElementById('footage-selector');
+                if (data.footages.length === 0) {
+                    sel.innerHTML = '<option value="">Awaiting Footage Upload...</option>';
+                    currentVideoFile = '';
+                } else {
+                    sel.innerHTML = data.footages.map(f => 
+                        `<option value="${f}" ${f === data.active ? 'selected' : ''}>${f}</option>`
+                    ).join('');
+                    currentVideoFile = data.active || data.footages[0];
+                }
+            } catch (err) {
+                console.error("Footage list error:", err);
+            }
+        }
+
+        // Fetch Telemetry & Stats
+        async function fetchTelemetryAndStats() {
+            try {
+                const [statRes, telemRes] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/telemetry')
+                ]);
+
+                if (statRes.ok) {
+                    const stats = await statRes.json();
+                    document.getElementById('hud-compliance').innerText = `${stats.compliance_rate}%`;
+                    document.getElementById('hud-active').innerText = stats.active_violations;
+                    document.getElementById('hud-total').innerText = stats.total_incidents;
+                    document.getElementById('hud-resolved').innerText = stats.resolved_incidents;
+                    document.getElementById('incident-status-summary').innerText = `Active Violations: ${stats.active_violations}`;
+                }
+
+                if (telemRes.ok) {
+                    const telem = await telemRes.json();
+                    document.getElementById('telemetry-latency').innerText = `${telem.inference_ms}ms`;
+                    document.getElementById('telemetry-fps').innerText = `${telem.fps} FPS`;
+                }
+            } catch (err) {
+                console.error("Telemetry error:", err);
+            }
+        }
+
+        // Filter tabs
+        function setFilter(filter) {
+            currentFilter = filter;
+            ['active', 'all', 'resolved'].forEach(f => {
+                const btn = document.getElementById(`tab-${f}`);
+                if (f === filter) {
+                    btn.className = `px-2.5 py-1 rounded-md font-semibold ${f === 'active' ? 'bg-red-500 text-white' : 'bg-amber-500 text-black'} shadow font-mono text-xs`;
+                } else {
+                    btn.className = 'px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white font-mono text-xs';
+                }
+            });
+            renderViolations();
+        }
+
+        // Fetch Violations
+        async function fetchViolations() {
+            try {
+                const res = await fetch('/api/violations?limit=50');
+                if (!res.ok) return;
+                violationsCache = await res.json();
+                renderViolations();
+            } catch (err) {
+                console.error("Fetch violations error:", err);
+            }
+        }
+
+        // Render Violations
+        function renderViolations() {
+            const container = document.getElementById('violations-container');
+            let filtered = violationsCache;
+            if (currentFilter === 'active') {
+                filtered = violationsCache.filter(v => v.resolved === 0);
+            } else if (currentFilter === 'resolved') {
+                filtered = violationsCache.filter(v => v.resolved === 1);
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-24 text-gray-500 text-xs font-mono">
+                        <i class="fa-solid fa-shield-halved text-3xl mb-2 text-emerald-500/40"></i>
+                        <p class="text-gray-400 font-semibold">NO ${currentFilter.toUpperCase()} VIOLATIONS DETECTED</p>
+                        <p class="text-gray-600 mt-1">PPE Compliance verified in monitored site zone.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map(v => {
+                const isResolved = v.resolved === 1;
+                const isTargetMatch = v.worker_name.toLowerCase().includes('aman') || v.worker_name.toLowerCase().includes('vishesh');
+                const isUnknown = v.worker_name.toLowerCase().includes('unidentified') || v.worker_name.toLowerCase().includes('unknown');
+                
+                const faceCropUrl = v.face_crop_file ? `/snapshots/${v.face_crop_file}` : null;
+                const snapUrl = v.snapshot_file ? `/snapshots/${v.snapshot_file}` : null;
+                const items = v.missing_ppe.split(',').map(s => s.trim());
+                const timeStr = new Date(v.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                return `
+                    <div class="p-3 rounded-xl border ${isResolved ? 'bg-brand-base/60 border-brand-cardBorder opacity-70' : 'bg-brand-card/90 border-red-500/40 hover:border-red-500'} transition duration-200 flex flex-col space-y-2.5">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-center space-x-3">
+                                <!-- Cropped Face Thumbnail -->
+                                <div class="relative w-12 h-12 rounded-lg overflow-hidden bg-black border ${isTargetMatch ? 'border-cyan-400 ring-2 ring-cyan-500/30' : (isResolved ? 'border-gray-700' : 'border-red-500')} flex-shrink-0">
+                                    ${faceCropUrl ? 
+                                        `<img src="${faceCropUrl}" alt="${v.worker_name}" class="w-full h-full object-cover">` : 
+                                        `<div class="w-full h-full flex items-center justify-center text-gray-600"><i class="fa-solid fa-user text-lg"></i></div>`
+                                    }
+                                </div>
+
+                                <!-- Worker Identity & Location -->
+                                <div>
+                                    <div class="flex items-center space-x-2">
+                                        <h4 class="font-bold text-xs ${isTargetMatch ? 'text-cyan-400 font-mono' : (isResolved ? 'text-gray-400' : 'text-white')}">${v.worker_name}</h4>
+                                        ${isTargetMatch ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">VERIFIED MATCH</span>` : ''}
+                                        ${isUnknown ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-mono bg-brand-subtle text-gray-400">UNREGISTERED</span>` : ''}
+                                    </div>
+                                    <p class="text-[10px] text-gray-400 font-mono mt-0.5"><i class="fa-solid fa-video text-[9px] mr-1 text-amber-500"></i>${v.camera_id} • <span>${timeStr}</span></p>
+                                </div>
+                            </div>
+
+                            <span class="text-[9px] px-2 py-0.5 rounded-full font-mono font-bold uppercase ${isResolved ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/30 animate-pulse'}">
+                                ${isResolved ? 'Resolved' : 'Violation'}
+                            </span>
+                        </div>
+
+                        <!-- Missing PPE Badges -->
+                        <div class="flex flex-wrap gap-1">
+                            ${items.map(item => `
+                                <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold ${item.includes('Helmet') ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'} flex items-center space-x-1">
+                                    <i class="fa-solid ${item.includes('Helmet') ? 'fa-hard-hat' : 'fa-shoe-prints'} text-[9px]"></i>
+                                    <span>${item}</span>
+                                </span>
+                            `).join('')}
+                        </div>
+
+                        <!-- Footer Actions: Snapshot Lightbox & Resolve -->
+                        <div class="flex items-center justify-between pt-1.5 border-t border-brand-cardBorder/60 text-xs font-mono">
+                            ${snapUrl ? `
+                                <button onclick="openSnapshotModal('${snapUrl}', '${v.worker_name}', '${v.timestamp}', '${v.missing_ppe}')" class="text-amber-400 hover:text-amber-300 flex items-center space-x-1 text-[11px]">
+                                    <i class="fa-regular fa-image"></i>
+                                    <span>Evidence Snapshot</span>
+                                </button>
+                            ` : `<span class="text-gray-600 text-[10px]">No Snapshot</span>`}
+
+                            ${!isResolved ? `
+                                <button onclick="resolveViolation(${v.id})" class="px-2.5 py-0.5 rounded bg-brand-subtle hover:bg-emerald-600 hover:text-white text-gray-300 text-[10px] font-semibold transition flex items-center space-x-1">
+                                    <i class="fa-solid fa-check text-[9px]"></i>
+                                    <span>Resolve</span>
+                                </button>
+                            ` : `
+                                <span class="text-emerald-400 text-[10px] flex items-center space-x-1">
+                                    <i class="fa-solid fa-check-double text-[9px]"></i>
+                                    <span>Resolved</span>
+                                </span>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function resolveViolation(id) {
+            try {
+                const res = await fetch(`/api/resolve/${id}`, { method: 'POST' });
+                if (res.ok) {
+                    await fetchViolations();
+                    await fetchTelemetryAndStats();
+                }
+            } catch (err) {
+                console.error("Resolve error:", err);
+            }
+        }
+
+        // Snapshot Modal Lightbox
+        function openSnapshotModal(imgUrl, workerName, timestamp, missingPpe) {
+            document.getElementById('modal-snapshot-img').src = imgUrl;
+            document.getElementById('modal-download-btn').href = imgUrl;
+            document.getElementById('modal-worker-title').innerText = `Incident Evidence: ${workerName}`;
+            document.getElementById('modal-timestamp').innerText = `Recorded: ${new Date(timestamp).toLocaleString()}`;
+            
+            const badgesContainer = document.getElementById('modal-missing-badges');
+            badgesContainer.innerHTML = missingPpe.split(',').map(m => `
+                <span class="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-mono font-semibold">
+                    ${m.trim()}
+                </span>
+            `).join('');
+
+            document.getElementById('snapshot-modal').classList.remove('hidden');
+        }
+
+        function closeSnapshotModal() {
+            document.getElementById('snapshot-modal').classList.add('hidden');
+        }
+
+        // Footage Upload Modal
+        function openFootageModal() {
+            document.getElementById('footage-modal').classList.remove('hidden');
+            document.getElementById('footage-upload-status').classList.add('hidden');
+            selectedFootageFile = null;
+        }
+
+        function closeFootageModal() {
+            document.getElementById('footage-modal').classList.add('hidden');
+        }
+
+        function handleFootageSelected(e) {
+            if (e.target.files && e.target.files.length > 0) {
+                selectedFootageFile = e.target.files[0];
+                const status = document.getElementById('footage-upload-status');
+                status.classList.remove('hidden');
+                status.className = 'text-xs p-3 rounded-lg font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20';
+                status.innerText = `Selected file: ${selectedFootageFile.name} (${Math.round(selectedFootageFile.size / 1024 / 1024)} MB)`;
+            }
+        }
+
+        async function submitFootageUpload() {
+            if (!selectedFootageFile) {
+                alert("Please select an industrial video file first.");
+                return;
+            }
+
+            const btn = document.getElementById('footage-upload-btn');
+            const status = document.getElementById('footage-upload-status');
+            btn.disabled = true;
+            btn.innerText = 'Uploading Video...';
+
+            const formData = new FormData();
+            formData.append('file', selectedFootageFile);
+
+            try {
+                const res = await fetch('/api/upload_footage', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    status.className = 'text-xs p-3 rounded-lg font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+                    status.innerText = data.message;
+                    await fetchFootages();
+                    switchChannel('footage');
+                    setTimeout(() => {
+                        closeFootageModal();
+                    }, 1200);
+                } else {
+                    status.className = 'text-xs p-3 rounded-lg font-mono bg-red-500/10 text-red-400 border border-red-500/20';
+                    status.innerText = data.detail || "Upload failed.";
+                }
+            } catch (err) {
+                status.className = 'text-xs p-3 rounded-lg font-mono bg-red-500/10 text-red-400 border border-red-500/20';
+                status.innerText = "Error uploading video file.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Upload & Stream';
+            }
+        }
+
+        // Personnel Directory Modal (Aman & Vishesh)
+        async function openPersonnelModal() {
+            document.getElementById('personnel-modal').classList.remove('hidden');
+            const container = document.getElementById('personnel-cards-container');
+            container.innerHTML = `<div class="text-center py-4 text-gray-500 font-mono text-xs"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading personnel records...</div>`;
+            
+            try {
+                const res = await fetch('/api/workers');
+                const workers = await res.json();
+                
+                const targetNames = ['Aman', 'Vishesh'];
+                container.innerHTML = targetNames.map((target, idx) => {
+                    const match = workers.find(w => w.name.toLowerCase().includes(target.toLowerCase()));
+                    const empId = idx === 0 ? 'EMP-01' : 'EMP-02';
+                    const isEnrolled = !!match;
+
+                    return `
+                        <div class="flex items-center space-x-3.5 p-3.5 bg-brand-base border ${isEnrolled ? 'border-cyan-500/40' : 'border-brand-cardBorder'} rounded-xl">
+                            <div class="w-14 h-14 rounded-lg overflow-hidden bg-brand-card border border-brand-cardBorder flex items-center justify-center flex-shrink-0">
+                                ${isEnrolled ? 
+                                    `<img src="/known_faces/${match.filename}" class="w-full h-full object-cover" alt="${target}">` : 
+                                    `<i class="fa-solid fa-user-clock text-2xl text-gray-600"></i>`
+                                }
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-2">
+                                    <h4 class="font-bold text-sm text-white font-mono">${target}</h4>
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-semibold bg-brand-subtle text-gray-300">${empId}</span>
+                                </div>
+                                <p class="text-[11px] text-gray-400 font-mono mt-0.5">${isEnrolled ? `Enrolled: ${match.filename}` : 'Photo pending upload'}</p>
+                            </div>
+                            <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold ${isEnrolled ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}">
+                                ${isEnrolled ? 'Active' : 'Pending Photo'}
+                            </span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                container.innerHTML = `<p class="text-xs text-red-400 font-mono text-center">Failed to load directory.</p>`;
+            }
+        }
+
+        function closePersonnelModal() {
+            document.getElementById('personnel-modal').classList.add('hidden');
+        }
+
+        // Face Enrollment Modal
+        function openEnrollModal() {
+            document.getElementById('enroll-modal').classList.remove('hidden');
+            document.getElementById('enroll-status').classList.add('hidden');
+        }
+
+        function closeEnrollModal() {
+            document.getElementById('enroll-modal').classList.add('hidden');
+        }
+
+        async function handleEnrollSubmit(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('enroll-submit-btn');
+            const statusDiv = document.getElementById('enroll-status');
+            const name = document.getElementById('enroll-name').value;
+            const workerId = document.getElementById('enroll-id').value;
+            const fileInput = document.getElementById('enroll-file');
+
+            if (!fileInput.files || fileInput.files.length === 0) return;
+
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Extracting SFace Features...';
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('worker_id', workerId);
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const res = await fetch('/api/enroll', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                statusDiv.classList.remove('hidden');
+                if (res.ok && data.success) {
+                    statusDiv.className = 'text-xs p-3 rounded-lg font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+                    statusDiv.innerText = data.message;
+                    setTimeout(() => {
+                        closeEnrollModal();
+                    }, 1400);
+                } else {
+                    statusDiv.className = 'text-xs p-3 rounded-lg font-mono bg-red-500/10 text-red-400 border border-red-500/20';
+                    statusDiv.innerText = data.detail || data.message || "Enrollment failed.";
+                }
+            } catch (err) {
+                statusDiv.classList.remove('hidden');
+                statusDiv.className = 'text-xs p-3 rounded-lg font-mono bg-red-500/10 text-red-400 border border-red-500/20';
+                statusDiv.innerText = "Error contacting server.";
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Enroll Face';
+            }
+        }
+
+        // Still Audit Modal
+        function openAuditModal() {
+            document.getElementById('audit-modal').classList.remove('hidden');
+            document.getElementById('audit-result-view').classList.add('hidden');
+        }
+
+        function closeAuditModal() {
+            document.getElementById('audit-modal').classList.add('hidden');
+        }
+
+        async function runAuditUpload() {
+            const fileInput = document.getElementById('audit-file-input');
+            const btn = document.getElementById('audit-btn');
+            const resultView = document.getElementById('audit-result-view');
+            const resultImg = document.getElementById('audit-result-img');
+            const resultText = document.getElementById('audit-result-text');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert("Please select a photo to audit.");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Analyzing PPE & Faces...';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const res = await fetch('/api/audit', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    resultView.classList.remove('hidden');
+                    resultImg.src = data.annotated_image;
+                    resultText.innerHTML = `
+                        <strong>Summary:</strong> Persons: ${data.summary.persons_count} | Violations: ${data.summary.violations_count} | Compliant: ${data.summary.compliant_count}<br>
+                        <strong>Violations Detail:</strong> ${JSON.stringify(data.summary.violations)}
+                    `;
+                    await fetchViolations();
+                    await fetchTelemetryAndStats();
+                } else {
+                    alert(data.detail || "Audit failed.");
+                }
+            } catch (err) {
+                alert("Error running audit.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Analyze Photo';
+            }
+        }
+
+        // Init
+        fetchFootages();
+        fetchTelemetryAndStats();
+        fetchViolations();
+        setInterval(fetchTelemetryAndStats, 2000);
+        setInterval(fetchViolations, 3000);
+    </script>
+</body>
+</html>
