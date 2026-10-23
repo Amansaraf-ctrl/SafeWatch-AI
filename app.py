@@ -119,22 +119,30 @@ def generate_frames(source="footage", video_file=None):
       3. Standby test screen when awaiting footage
     """
     if source == "cam":
-        cap = cv2.VideoCapture(0)
+        # Windows DirectShow backend for zero buffer latency
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
+
         if not cap.isOpened():
             # If camera 0 cannot be opened, stream standby graphic
             while True:
                 standby = make_standby_frame(message="CAMERA 0 UNAVAILABLE // SWITCH TO FOOTAGE")
-                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 75])
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(0.1)
         else:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             try:
                 while True:
                     t0 = time.time()
                     ret, frame = cap.read()
                     if not ret:
-                        time.sleep(0.04)
+                        time.sleep(0.01)
                         continue
 
                     annotated, _ = detector.detect(frame, camera_id="Cam_01_Webcam", save_snapshots=True)
@@ -142,11 +150,14 @@ def generate_frames(source="footage", video_file=None):
                     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
                     active_stream_state["last_fps"] = round(1000.0 / max(infer_ms, 1.0), 1)
 
-                    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
                     if ret_enc:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                    time.sleep(0.02)
+                    
+                    elapsed = time.time() - t0
+                    sleep_time = max(0.001, 0.033 - elapsed)
+                    time.sleep(sleep_time)
             finally:
                 cap.release()
 

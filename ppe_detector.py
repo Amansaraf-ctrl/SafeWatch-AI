@@ -23,11 +23,11 @@ from db_logger import log_violation_to_db, SNAPSHOTS_DIR
 CLASSES = ["Helmet", "No_helmet", "Safety_shoes", "No_SafetyShoes", "Person"]
 
 CLASS_COLORS = {
-    "Helmet": (0, 200, 0),         # Green
-    "No_helmet": (0, 0, 255),       # Red
-    "Safety_shoes": (0, 180, 0),    # Green
-    "No_SafetyShoes": (0, 140, 255),# Orange
-    "Person": (255, 255, 255),      # White
+    "Helmet": (0, 220, 0),          # Green
+    "No_helmet": (0, 0, 255),        # Red
+    "Safety_shoes": (0, 200, 0),     # Green
+    "No_SafetyShoes": (0, 140, 255), # Orange
+    "Person": (255, 255, 255),       # White
 }
 
 
@@ -70,7 +70,8 @@ class PPEDetector:
         self.nms_thre = nms_thre
         
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[PPE DETECTOR] Initializing on device: {self.device}")
+        self.use_fp16 = (self.device == "cuda")
+        print(f"[PPE DETECTOR] Initializing on {self.device} (FP16={self.use_fp16})")
         
         self.exp = get_exp(self.exp_path, None)
         self.model = self.exp.get_model()
@@ -82,7 +83,11 @@ class PPEDetector:
             self.model.load_state_dict(ckpt["model"])
             print(f"[PPE DETECTOR] Loaded weights from: {self.ckpt_path}")
         else:
-            print(f"[PPE DETECTOR WARNING] Checkpoint not found at {self.ckpt_path}, model uninitialized!")
+            print(f"[PPE DETECTOR WARNING] Checkpoint not found at {self.ckpt_path}")
+
+        # Half precision for Ampere Tensor Cores
+        if self.use_fp16:
+            self.model.half()
 
         self.preproc = ValTransform(legacy=False)
         self.test_size = self.exp.test_size
@@ -94,22 +99,19 @@ class PPEDetector:
         self.last_logged_time = {}
         self.log_cooldown = 6.0  # seconds
 
+        # Identity cache to eliminate running face recognition on every single video frame
+        self.person_cache = {}  # {track_id or box_center: (name, conf, timestamp)}
+        self.frame_count = 0
+
     def detect(self, frame, camera_id="Cam_01", save_snapshots=True):
         """
-        Runs YOLOX detection and Face Recognition on a frame.
-        
-        Args:
-            frame (np.ndarray): BGR image.
-            camera_id (str): ID of camera stream.
-            save_snapshots (bool): Whether to persist violation snapshots and DB logs.
-            
-        Returns:
-            annotated_frame (np.ndarray): Visualization with high-contrast boxes and labels.
-            frame_summary (dict): Detections, violations, and recognized worker details.
+        Runs edge-accelerated YOLOX detection and Face Recognition on a frame.
         """
+        self.frame_count += 1
         orig_h, orig_w, _ = frame.shape
         blob, _ = self.preproc(frame, None, self.test_size)
-        blob = torch.from_numpy(blob).unsqueeze(0).float().to(self.device)
+        blob = torch.from_numpy(blob).unsqueeze(0).to(self.device)
+        blob = blob.half() if self.use_fp16 else blob.float()
 
         with torch.no_grad():
             outputs = self.model(blob)
@@ -151,7 +153,6 @@ class PPEDetector:
         violations_in_frame = []
         compliant_in_frame = []
 
-        # If persons detected, associate PPE items to each person
         for person in detected_persons:
             px1, py1, px2, py2 = person["bbox"]
             pw = px2 - px1
@@ -193,11 +194,26 @@ class PPEDetector:
 
             is_violation = len(missing_items) > 0
             
-            # Crop person area
-            person_crop = frame[py1:py2, px1:px2]
-            face_result = self.face_system.recognize_in_crop(person_crop)
-            worker_name = face_result["name"]
-            face_conf = face_result["confidence"]
+            # Smart face recognition cadence:
+            # Run face recognition if:
+            #   1. Violation is detected, OR
+            #   2. Every 6th frame to keep track of compliant personnel without lagging
+            center_key = f"{int(px1/50)}_{int(py1/50)}"
+            cached_identity = self.person_cache.get(center_key)
+            
+            should_recognize = is_violation or (cached_identity is None) or (self.frame_count % 6 == 0)
+            
+            if should_recognize:
+                person_crop = frame[py1:py2, px1:px2]
+                face_result = self.face_system.recognize_in_crop(person_crop)
+                worker_name = face_result["name"]
+                face_conf = face_result["confidence"]
+                self.person_cache[center_key] = (worker_name, face_conf, now, face_result)
+            else:
+                worker_name, face_conf, _, face_result = cached_identity
+
+            # Target matching highlight (Aman / Vishesh)
+            is_target = any(k in worker_name.lower() for k in ["aman", "vishesh"])
 
             if is_violation:
                 violations_in_frame.append({
@@ -211,28 +227,23 @@ class PPEDetector:
                 debounce_key = f"{worker_name}_{camera_id}"
                 last_time = self.last_logged_time.get(debounce_key, 0)
                 
-                snap_filename = None
-                face_filename = None
-                
                 if save_snapshots and (now - last_time > self.log_cooldown):
                     uid = uuid.uuid4().hex[:8]
                     ts_str = time.strftime("%Y%m%d_%H%M%S")
                     
-                    # Save full frame snapshot
                     snap_filename = f"snap_{ts_str}_{uid}.jpg"
                     cv2.imwrite(str(SNAPSHOTS_DIR / snap_filename), frame)
                     
-                    # Save cropped face if available, otherwise upper person crop
-                    if face_result.get("aligned_face") is not None:
-                        face_filename = f"face_{ts_str}_{uid}.jpg"
+                    face_filename = f"face_{ts_str}_{uid}.jpg"
+                    if face_result and face_result.get("aligned_face") is not None:
                         cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), face_result["aligned_face"])
-                    elif person_crop.size > 0:
-                        face_filename = f"face_{ts_str}_{uid}.jpg"
-                        upper_crop = person_crop[:int(ph * 0.4), :]
-                        if upper_crop.size > 0:
-                            cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), upper_crop)
+                    else:
+                        person_crop = frame[py1:py2, px1:px2]
+                        if person_crop.size > 0:
+                            upper_crop = person_crop[:int(ph * 0.4), :]
+                            if upper_crop.size > 0:
+                                cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), upper_crop)
 
-                    # Persist event
                     log_violation_to_db(
                         status="VIOLATION",
                         missing_items=missing_items,
@@ -244,34 +255,32 @@ class PPEDetector:
                     )
                     self.last_logged_time[debounce_key] = now
 
-                # Draw violation styling: Red (#EF4444)
-                color = (40, 40, 235)  # BGR Red
+                # Draw violation styling: Red
+                color = (40, 40, 235)  # Crimson
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 3)
                 
-                # Overlay tag header
-                tag_label = f"VIOLATION: {worker_name}"
+                name_tag = f"VIOLATION: {worker_name}" + (" [MATCH]" if is_target else "")
                 sub_label = f"Missing: {', '.join(missing_items)}"
                 
-                # Background banner for text
-                cv2.rectangle(annotated, (px1, max(0, py1 - 42)), (px1 + 320, py1), color, -1)
-                cv2.putText(annotated, tag_label, (px1 + 6, max(16, py1 - 24)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+                cv2.rectangle(annotated, (px1, max(0, py1 - 44)), (px1 + 340, py1), color, -1)
+                cv2.putText(annotated, name_tag, (px1 + 6, max(16, py1 - 25)), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
                 cv2.putText(annotated, sub_label, (px1 + 6, max(36, py1 - 6)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.48, (240, 240, 240), 1)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.46, (240, 240, 240), 1)
 
             else:
                 compliant_in_frame.append({
                     "worker_name": worker_name,
                     "bbox": [px1, py1, px2, py2]
                 })
-                # Compliant styling: Emerald Green (#10B981)
-                color = (60, 180, 40)  # BGR Green
+                # Compliant styling: Emerald Green
+                color = (60, 200, 40)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
                 
-                tag_label = f"COMPLIANT: {worker_name}"
-                cv2.rectangle(annotated, (px1, max(0, py1 - 24)), (px1 + 240, py1), color, -1)
-                cv2.putText(annotated, tag_label, (px1 + 6, max(16, py1 - 6)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
+                name_tag = f"COMPLIANT: {worker_name}" + (" [VERIFIED]" if is_target else "")
+                cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 280, py1), color, -1)
+                cv2.putText(annotated, name_tag, (px1 + 6, max(18, py1 - 7)), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
 
         # Draw PPE items bounding boxes
         for ppe in detected_ppe:
@@ -280,7 +289,7 @@ class PPEDetector:
             pcolor = CLASS_COLORS.get(pcls, (255, 255, 0))
             cv2.rectangle(annotated, (bx1, by1), (bx2, by2), pcolor, 1)
             cv2.putText(annotated, f"{pcls} {ppe['score']}", (bx1, max(12, by1 - 4)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, pcolor, 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.40, pcolor, 1)
 
         summary = {
             "persons_count": len(detected_persons),
