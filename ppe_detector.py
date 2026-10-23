@@ -91,9 +91,61 @@ def detect_slippers_or_barefoot(foot_crop):
     return is_slipper, max(skin_ratio_ycrcb, skin_ratio_hsv)
 
 
-def is_architectural_pillar(crop, box, score=0.5):
+def evaluate_footwear_certainty(crop, score, cls_name):
     """
-    Filters out static vertical entrance pillars, columns, and building posts.
+    Enforces strict footwear certainty policy:
+    'if you are unable to classify them into safety shoes or no safety shoes,
+    just do not detect them; only detect them when you are certain.'
+
+    Returns:
+        (verified_class, confidence_score) or (None, 0.0) if uncertain.
+    """
+    if crop is None or crop.size == 0:
+        return None, 0.0
+    h, w, _ = crop.shape
+    if h < 14 or w < 14:
+        return None, 0.0
+
+    # 1. YCrCb Skin Tone Space
+    ycrcb = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)
+    cr = ycrcb[:, :, 1]
+    cb = ycrcb[:, :, 2]
+    skin_ycrcb = (cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)
+    skin_ratio_ycrcb = float(np.mean(skin_ycrcb))
+
+    # 2. HSV Skin Tone Space
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    h_ch = hsv[:, :, 0]
+    s_ch = hsv[:, :, 1]
+    v_ch = hsv[:, :, 2]
+    skin_hsv = (h_ch <= 25) & (s_ch >= 35) & (s_ch <= 210) & (v_ch >= 45)
+    skin_ratio_hsv = float(np.mean(skin_hsv))
+
+    skin_ratio = max(skin_ratio_ycrcb, skin_ratio_hsv)
+
+    # Decisive Slippers / Flip-Flops / Barefoot:
+    # If substantial skin is exposed on the foot (>= 12%), it CANNOT be a safety shoe!
+    if skin_ratio >= 0.12:
+        return "No_SafetyShoes", round(max(score, skin_ratio), 2)
+
+    # Decisive Industrial Safety Shoes (Steel-toe leather/rubber boots):
+    # Must have high model confidence (>= 0.58) AND virtually zero exposed skin (< 3.5%)
+    if cls_name == "Safety_shoes" and score >= 0.58 and skin_ratio < 0.035:
+        return "Safety_shoes", round(score, 2)
+
+    # Decisive Explicit No_SafetyShoes:
+    # Must have high confidence (>= 0.55)
+    if cls_name == "No_SafetyShoes" and score >= 0.55:
+        return "No_SafetyShoes", round(score, 2)
+
+    # If unable to classify with certainty, DO NOT DETECT!
+    return None, 0.0
+
+
+def is_architectural_pillar(crop, box, orig_h, score=0.5):
+    """
+    Distinguishes architectural columns, entrance pillars, and static posts
+    from living human workers.
     """
     x1, y1, x2, y2 = box
     pw = x2 - x1
@@ -104,30 +156,26 @@ def is_architectural_pillar(crop, box, score=0.5):
 
     aspect_ratio = ph / float(pw)
 
-    # 1. Vertical aspect ratio check: entrance columns are extremely tall and narrow
-    if aspect_ratio > 3.0:
+    # 1. Structural pillars attached to top ceiling / entrance frame (y1 <= 6% frame height)
+    if y1 <= int(orig_h * 0.06) and aspect_ratio > 1.8 and score < 0.65:
         return True
 
-    # 2. Check for uniform vertical edges & monolithic texture across column
-    if crop is not None and crop.size > 0:
+    # 2. Check vertical texture: architectural columns have continuous vertical Sobel lines
+    if crop is not None and crop.size > 0 and aspect_ratio > 2.0:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
         if h > 30 and w > 10:
-            top_slice = gray[:int(h * 0.25), :]
-            mid_slice = gray[int(h * 0.4):int(h * 0.6), :]
-            bot_slice = gray[int(h * 0.75):, :]
-
-            mean_top = np.mean(top_slice)
-            mean_mid = np.mean(mid_slice)
-            mean_bot = np.mean(bot_slice)
-
-            # Monolithic architectural pillars have nearly identical row averages from top to bottom
-            col_std = np.std([mean_top, mean_mid, mean_bot])
-            if col_std < 10.0 and aspect_ratio > 2.3:
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            mean_sx = np.mean(np.abs(sobelx))
+            mean_sy = np.mean(np.abs(sobely))
+            vert_edge_ratio = mean_sx / max(mean_sy, 1e-5)
+            # Pillars have dominant parallel vertical boundaries and flat horizontal cross-section
+            if vert_edge_ratio > 1.40 and score < 0.58:
                 return True
 
-    # 3. Reject marginal detections that look like pillars
-    if score < 0.55 and aspect_ratio > 2.4:
+    # 3. Static extreme aspect ratio column with modest score
+    if aspect_ratio > 3.6:
         return True
 
     return False
@@ -305,14 +353,14 @@ class PPEDetector:
                 
                 if cls_name == "Person":
                     # --- REJECT POSTERS, T-SHIRT PRINTS & ARCHITECTURAL PILLARS ---
-                    # 1. Require strong person confidence score (>= 0.44)
-                    if score < 0.44:
+                    # 1. Require strong person confidence score (>= 0.48)
+                    if score < 0.48:
                         continue
                     
                     pw = x2 - x1
                     ph = y2 - y1
-                    # 2. Minimum human physical dimensions (at least 105px tall and 40px wide)
-                    if ph < 105 or pw < 40:
+                    # 2. Minimum human physical dimensions (at least 90px tall and 30px wide)
+                    if ph < 90 or pw < 30:
                         continue
                     
                     # 3. Reject flat posters/prints (aspect < 1.15)
@@ -321,14 +369,27 @@ class PPEDetector:
                         continue
 
                     # 4. Reject entrance pillars, columns, and structural posts
-                    person_crop = frame[y1:y2, x1:x2]
-                    if is_architectural_pillar(person_crop, [x1, y1, x2, y2], score=score):
+                    person_crop = frame[max(0, y1):min(orig_h, y2), max(0, x1):min(orig_w, x2)]
+                    if is_architectural_pillar(person_crop, [x1, y1, x2, y2], orig_h, score=score):
                         continue
                         
                     detected_person_boxes.append([x1, y1, x2, y2])
 
-                else:
-                    if score >= 0.28:
+                elif cls_name in ("Safety_shoes", "No_SafetyShoes"):
+                    # Strictly evaluate footwear certainty:
+                    # 'if unable to classify into safety shoes or no safety shoes, do not detect them'
+                    crop = frame[max(0, y1):min(orig_h, y2), max(0, x1):min(orig_w, x2)]
+                    verified_cls, verified_score = evaluate_footwear_certainty(crop, score, cls_name)
+                    if verified_cls is not None:
+                        detected_ppe.append({
+                            "bbox": [x1, y1, x2, y2],
+                            "score": verified_score,
+                            "class_id": CLASSES.index(verified_cls),
+                            "class_name": verified_cls
+                        })
+
+                else: # Helmet / No_helmet
+                    if score >= 0.32:
                         detected_ppe.append({
                             "bbox": [x1, y1, x2, y2],
                             "score": round(score, 2),
@@ -356,7 +417,6 @@ class PPEDetector:
             has_no_helmet = False
             has_verified_shoes = False
             has_no_shoes_flag = False
-            slipper_or_barefoot_detected = False
             raw_helmet_box = None
             
             for ppe in detected_ppe:
@@ -374,24 +434,28 @@ class PPEDetector:
                 elif p_cls in ("Safety_shoes", "No_SafetyShoes"):
                     if box_containment(p_box, feet_box) or box_iou(p_box, feet_box) > 0.05:
                         if p_cls == "Safety_shoes":
-                            # Inspect the shoes bounding box for exposed skin (slippers/barefoot)
-                            sx1, sy1, sx2, sy2 = p_box
-                            shoe_crop = frame[sy1:sy2, sx1:sx2]
-                            is_slipper, _ = detect_slippers_or_barefoot(shoe_crop)
-                            if is_slipper:
-                                slipper_or_barefoot_detected = True
-                            else:
-                                has_verified_shoes = True
-
-                        if p_cls == "No_SafetyShoes":
+                            has_verified_shoes = True
+                        elif p_cls == "No_SafetyShoes":
                             has_no_shoes_flag = True
 
-            # If not detected as shoes, also inspect feet zone of the worker directly
-            if not has_verified_shoes and not slipper_or_barefoot_detected:
-                feet_crop = frame[py1 + int(ph * 0.70):py2, px1:px2]
-                is_slipper, _ = detect_slippers_or_barefoot(feet_crop)
-                if is_slipper:
-                    slipper_or_barefoot_detected = True
+            # Also inspect bottom 12% feet crop for decisive slippers/barefoot (exposed skin)
+            if not has_no_shoes_flag and not has_verified_shoes:
+                feet_crop = frame[py1 + int(ph * 0.88):py2, px1:px2]
+                if feet_crop.size > 0:
+                    ycrcb = cv2.cvtColor(feet_crop, cv2.COLOR_BGR2YCrCb)
+                    skin_ycrcb = (ycrcb[:, :, 1] >= 133) & (ycrcb[:, :, 1] <= 173) & (ycrcb[:, :, 2] >= 77) & (ycrcb[:, :, 2] <= 127)
+                    hsv = cv2.cvtColor(feet_crop, cv2.COLOR_BGR2HSV)
+                    skin_hsv = (hsv[:, :, 0] <= 25) & (hsv[:, :, 1] >= 35) & (hsv[:, :, 1] <= 210) & (hsv[:, :, 2] >= 45)
+                    feet_skin_ratio = max(float(np.mean(skin_ycrcb)), float(np.mean(skin_hsv)))
+                    if feet_skin_ratio >= 0.14:
+                        has_no_shoes_flag = True
+                        s_box = [px1, py1 + int(ph * 0.85), px2, py2]
+                        detected_ppe.append({
+                            "bbox": s_box,
+                            "score": round(feet_skin_ratio, 2),
+                            "class_id": 3,
+                            "class_name": "No_SafetyShoes"
+                        })
 
             # --- HARD HAT VS BASEBALL CAP / BIKE HELMET VERIFICATION ---
             has_verified_hardhat = False
@@ -422,13 +486,11 @@ class PPEDetector:
                 else:
                     missing_items.append("No Helmet")
 
-            # 2. Footwear checks (Strict: slippers/barefoot are immediate critical violations)
-            if slipper_or_barefoot_detected:
-                missing_items.append("Slippers/Barefoot (Safety Shoes Required)")
-            elif has_no_shoes_flag or not has_verified_shoes:
-                # If feet are in frame (person reaches lower screen)
-                if py2 > int(orig_h * 0.80):
-                    missing_items.append("No Safety Shoes")
+            # 2. Footwear checks (STRICT CERTAINTY POLICY)
+            # Only flag violation if decisively certain (slippers/barefoot or explicit No_SafetyShoes)
+            # If footwear is ambiguous/uncertain, do NOT detect and do NOT penalize!
+            if has_no_shoes_flag:
+                missing_items.append("No Safety Shoes (Slippers/Casual Footwear)")
 
             is_violation = len(missing_items) > 0
             
@@ -518,7 +580,7 @@ class PPEDetector:
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
                 
                 name_tag = f"COMPLIANT: {worker_name}" + (" [VERIFIED]" if is_target else "")
-                sub_tag = "Hard Hat & Shoes Verified"
+                sub_tag = "Hard Hat & Shoes Verified" if has_verified_shoes else "Hard Hat Verified"
                 
                 cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 340, py1), color, -1)
                 cv2.putText(annotated, f"{name_tag} ({sub_tag})", (px1 + 6, max(18, py1 - 7)), 
