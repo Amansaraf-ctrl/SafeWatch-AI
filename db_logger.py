@@ -22,6 +22,26 @@ _mongo_client = None
 _mongo_collection = None
 
 
+MAX_SNAPSHOTS_RETAINED = 60
+
+
+def prune_snapshots_directory():
+    """Keeps only the newest MAX_SNAPSHOTS_RETAINED snapshots, deleting older ones to conserve disk space."""
+    try:
+        files = sorted(
+            [f for f in SNAPSHOTS_DIR.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"],
+            key=lambda x: x.stat().st_mtime
+        )
+        if len(files) > MAX_SNAPSHOTS_RETAINED:
+            for f in files[:-MAX_SNAPSHOTS_RETAINED]:
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[STORAGE PRUNE WARNING] {e}")
+
+
 def get_sqlite_conn():
     """Initializes and returns a SQLite connection with WAL mode enabled."""
     conn = sqlite3.connect(str(SQLITE_PATH), timeout=10.0)
@@ -73,6 +93,9 @@ def log_violation_to_db(status, missing_items, camera_id="Cam_01", worker_name="
     """
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     missing_str = ", ".join(missing_items) if isinstance(missing_items, (list, tuple)) else str(missing_items)
+
+    # Prune old snapshot files to maintain storage bounds
+    prune_snapshots_directory()
 
     violation_id = None
     # 1. Local SQLite storage

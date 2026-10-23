@@ -58,6 +58,67 @@ def box_containment(child_box, parent_box):
     return inter / child_area if child_area > 0 else 0.0
 
 
+class SpatialWorkerTracker:
+    """
+    Tracks workers across frames using spatial IoU.
+    Prevents duplicate snapshot flood while a worker moves around in frame.
+    """
+    def __init__(self, max_disappeared=75, re_alert_interval=180.0):
+        self.next_id = 1
+        self.tracks = {}  # {track_id: {'bbox': box, 'disappeared': 0, 'logged': bool, 'name': str, 'conf': float, 'last_time': float, 'face_res': dict}}
+        self.max_disappeared = max_disappeared
+        self.re_alert_interval = re_alert_interval
+
+    def update(self, detected_boxes):
+        """
+        Matches detected person boxes to existing tracks.
+        Returns list of (track_id, track_dict, det_box).
+        """
+        matched = []
+        unmatched_dets = list(range(len(detected_boxes)))
+
+        for tid, track in list(self.tracks.items()):
+            best_iou = 0.0
+            best_idx = -1
+            tb = track["bbox"]
+
+            for idx in unmatched_dets:
+                db = detected_boxes[idx]
+                iou = box_iou(tb, db)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_idx = idx
+
+            # Spatial match threshold
+            if best_iou > 0.25:
+                track["bbox"] = detected_boxes[best_idx]
+                track["disappeared"] = 0
+                matched.append((tid, track, detected_boxes[best_idx]))
+                unmatched_dets.remove(best_idx)
+            else:
+                track["disappeared"] += 1
+                if track["disappeared"] > self.max_disappeared:
+                    del self.tracks[tid]
+
+        # Allocate new tracks for entering personnel
+        for idx in unmatched_dets:
+            tid = self.next_id
+            self.next_id += 1
+            new_track = {
+                "bbox": detected_boxes[idx],
+                "disappeared": 0,
+                "logged": False,
+                "name": "Unidentified Worker",
+                "conf": 0.0,
+                "last_time": 0.0,
+                "face_res": None
+            }
+            self.tracks[tid] = new_track
+            matched.append((tid, new_track, detected_boxes[idx]))
+
+        return matched
+
+
 class PPEDetector:
     def __init__(self, 
                  exp_path=r"C:\ppe detection\YOLOX\exps\custom\yolox_s_ppe.py",
@@ -95,17 +156,13 @@ class PPEDetector:
         # Face Recognizer integration
         self.face_system = FaceRecognitionSystem()
         
-        # Debounce dictionary for snapshot throttling: {worker_name_or_box: last_timestamp}
-        self.last_logged_time = {}
-        self.log_cooldown = 6.0  # seconds
-
-        # Identity cache to eliminate running face recognition on every single video frame
-        self.person_cache = {}  # {track_id or box_center: (name, conf, timestamp)}
+        # Spatial Worker Tracker for single-snapshot incident deduplication
+        self.tracker = SpatialWorkerTracker(max_disappeared=75, re_alert_interval=180.0)
         self.frame_count = 0
 
     def detect(self, frame, camera_id="Cam_01", save_snapshots=True):
         """
-        Runs edge-accelerated YOLOX detection and Face Recognition on a frame.
+        Runs edge-accelerated YOLOX detection, spatial tracking, and deduplicated snapshot capture.
         """
         self.frame_count += 1
         orig_h, orig_w, _ = frame.shape
@@ -119,13 +176,12 @@ class PPEDetector:
 
         scale = min(self.test_size[0] / orig_h, self.test_size[1] / orig_w)
         
-        detected_persons = []
+        detected_person_boxes = []
         detected_ppe = []
 
         if outputs[0] is not None:
             output = outputs[0].cpu().numpy()
             for row in output:
-                # [x1, y1, x2, y2, obj_conf, cls_conf, cls_pred]
                 box = row[:4] / scale
                 x1 = max(0, min(orig_w - 1, int(box[0])))
                 y1 = max(0, min(orig_h - 1, int(box[1])))
@@ -136,25 +192,26 @@ class PPEDetector:
                 cls_id = int(row[6])
                 cls_name = CLASSES[cls_id] if cls_id < len(CLASSES) else "Unknown"
                 
-                det_obj = {
-                    "bbox": [x1, y1, x2, y2],
-                    "score": round(score, 2),
-                    "class_id": cls_id,
-                    "class_name": cls_name
-                }
-                
                 if cls_name == "Person":
-                    detected_persons.append(det_obj)
+                    detected_person_boxes.append([x1, y1, x2, y2])
                 else:
-                    detected_ppe.append(det_obj)
+                    detected_ppe.append({
+                        "bbox": [x1, y1, x2, y2],
+                        "score": round(score, 2),
+                        "class_id": cls_id,
+                        "class_name": cls_name
+                    })
 
         annotated = frame.copy()
         now = time.time()
         violations_in_frame = []
         compliant_in_frame = []
 
-        for person in detected_persons:
-            px1, py1, px2, py2 = person["bbox"]
+        # Run spatial tracker across detected person boxes
+        tracked_workers = self.tracker.update(detected_person_boxes)
+
+        for tid, track, pbox in tracked_workers:
+            px1, py1, px2, py2 = pbox
             pw = px2 - px1
             ph = py2 - py1
             
@@ -170,22 +227,19 @@ class PPEDetector:
             has_no_shoes = False
             
             for ppe in detected_ppe:
-                pbox = ppe["bbox"]
-                pcls = ppe["class_name"]
+                p_box = ppe["bbox"]
+                p_cls = ppe["class_name"]
                 
-                if pcls in ("Helmet", "No_helmet"):
-                    overlap = box_containment(pbox, head_box) or box_iou(pbox, head_box) > 0.1
-                    if overlap:
-                        if pcls == "Helmet": has_helmet = True
-                        if pcls == "No_helmet": has_no_helmet = True
+                if p_cls in ("Helmet", "No_helmet"):
+                    if box_containment(p_box, head_box) or box_iou(p_box, head_box) > 0.08:
+                        if p_cls == "Helmet": has_helmet = True
+                        if p_cls == "No_helmet": has_no_helmet = True
                         
-                elif pcls in ("Safety_shoes", "No_SafetyShoes"):
-                    overlap = box_containment(pbox, feet_box) or box_iou(pbox, feet_box) > 0.05
-                    if overlap:
-                        if pcls == "Safety_shoes": has_shoes = True
-                        if pcls == "No_SafetyShoes": has_no_shoes = True
+                elif p_cls in ("Safety_shoes", "No_SafetyShoes"):
+                    if box_containment(p_box, feet_box) or box_iou(p_box, feet_box) > 0.05:
+                        if p_cls == "Safety_shoes": has_shoes = True
+                        if p_cls == "No_SafetyShoes": has_no_shoes = True
 
-            # Determine violations
             missing_items = []
             if has_no_helmet or not has_helmet:
                 missing_items.append("No Helmet")
@@ -194,47 +248,49 @@ class PPEDetector:
 
             is_violation = len(missing_items) > 0
             
-            # Smart face recognition cadence:
-            # Run face recognition if:
-            #   1. Violation is detected, OR
-            #   2. Every 6th frame to keep track of compliant personnel without lagging
-            center_key = f"{int(px1/50)}_{int(py1/50)}"
-            cached_identity = self.person_cache.get(center_key)
-            
-            should_recognize = is_violation or (cached_identity is None) or (self.frame_count % 6 == 0)
-            
-            if should_recognize:
+            # Identity Recognition Cadence
+            needs_face_id = (track["name"] in ("Unidentified Worker", "Unknown Worker")) or (self.frame_count % 10 == 0)
+            if needs_face_id:
                 person_crop = frame[py1:py2, px1:px2]
                 face_result = self.face_system.recognize_in_crop(person_crop)
-                worker_name = face_result["name"]
-                face_conf = face_result["confidence"]
-                self.person_cache[center_key] = (worker_name, face_conf, now, face_result)
-            else:
-                worker_name, face_conf, _, face_result = cached_identity
+                track["name"] = face_result["name"]
+                track["conf"] = face_result["confidence"]
+                track["face_res"] = face_result
 
-            # Target matching highlight (Aman / Vishesh)
+            worker_name = track["name"]
+            face_conf = track["conf"]
+            face_result = track["face_res"]
+
             is_target = any(k in worker_name.lower() for k in ["aman", "vishesh"])
 
             if is_violation:
                 violations_in_frame.append({
+                    "track_id": tid,
                     "worker_name": worker_name,
                     "missing_items": missing_items,
                     "bbox": [px1, py1, px2, py2],
                     "face_conf": face_conf
                 })
                 
-                # Check snapshot cooldown
-                debounce_key = f"{worker_name}_{camera_id}"
-                last_time = self.last_logged_time.get(debounce_key, 0)
-                
-                if save_snapshots and (now - last_time > self.log_cooldown):
+                # --- DEDUPLICATED SNAPSHOT ENGINE ---
+                # A snapshot is ONLY created if:
+                # 1. This worker has NOT logged a snapshot yet for this incident, OR
+                # 2. More than 180 seconds have elapsed for an ongoing persistent violation.
+                time_since_last = now - track["last_time"]
+                is_fresh_incident = not track["logged"]
+                re_alert_due = (track["logged"] and time_since_last > self.tracker.re_alert_interval)
+
+                if save_snapshots and (is_fresh_incident or re_alert_due):
                     uid = uuid.uuid4().hex[:8]
                     ts_str = time.strftime("%Y%m%d_%H%M%S")
                     
                     snap_filename = f"snap_{ts_str}_{uid}.jpg"
+                    face_filename = f"face_{ts_str}_{uid}.jpg"
+                    
+                    # Save single full incident snapshot
                     cv2.imwrite(str(SNAPSHOTS_DIR / snap_filename), frame)
                     
-                    face_filename = f"face_{ts_str}_{uid}.jpg"
+                    # Save cropped face
                     if face_result and face_result.get("aligned_face") is not None:
                         cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), face_result["aligned_face"])
                     else:
@@ -253,10 +309,13 @@ class PPEDetector:
                         face_crop_file=face_filename,
                         confidence=face_conf
                     )
-                    self.last_logged_time[debounce_key] = now
+                    
+                    track["logged"] = True
+                    track["last_time"] = now
+                    print(f"[INCIDENT LOGGED] Track #{tid} ({worker_name}) - Missing: {missing_items}")
 
-                # Draw violation styling: Red
-                color = (40, 40, 235)  # Crimson
+                # Draw violation box (Red)
+                color = (40, 40, 235)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 3)
                 
                 name_tag = f"VIOLATION: {worker_name}" + (" [MATCH]" if is_target else "")
@@ -269,11 +328,16 @@ class PPEDetector:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.46, (240, 240, 240), 1)
 
             else:
+                # If worker has resolved their violation while on camera, reset logged flag
+                if track["logged"]:
+                    track["logged"] = False
+                    
                 compliant_in_frame.append({
+                    "track_id": tid,
                     "worker_name": worker_name,
                     "bbox": [px1, py1, px2, py2]
                 })
-                # Compliant styling: Emerald Green
+                # Compliant box (Green)
                 color = (60, 200, 40)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
                 
@@ -292,7 +356,7 @@ class PPEDetector:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.40, pcolor, 1)
 
         summary = {
-            "persons_count": len(detected_persons),
+            "persons_count": len(tracked_workers),
             "violations_count": len(violations_in_frame),
             "compliant_count": len(compliant_in_frame),
             "violations": violations_in_frame,
