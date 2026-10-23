@@ -149,7 +149,14 @@ class FaceRecognitionSystem:
         best_score = 0.0
         
         for enrolled in self.enrolled_faces:
-            score = self.recognizer.match(query_feat, enrolled["feature"], cv2.FaceRecognizerSF.FR_COSINE)
+            try:
+                score = float(self.recognizer.match(query_feat, enrolled["feature"], cv2.FaceRecognizerSF_FR_COSINE))
+            except Exception:
+                v1 = query_feat.flatten()
+                v2 = enrolled["feature"].flatten()
+                denom = np.linalg.norm(v1) * np.linalg.norm(v2)
+                score = float(np.dot(v1, v2) / denom) if denom > 0 else 0.0
+
             if score > best_score:
                 best_score = score
                 if score >= self.threshold:
