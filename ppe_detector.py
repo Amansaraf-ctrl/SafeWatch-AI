@@ -58,6 +58,69 @@ def box_containment(child_box, parent_box):
     return inter / child_area if child_area > 0 else 0.0
 
 
+def verify_industrial_hard_hat(head_crop):
+    """
+    Distinguishes genuine industrial safety helmets (Hard Hats - OSHA/EN 397 standard)
+    from casual headwear (baseball caps, cloth hats, beanies) and bicycle helmets.
+    
+    Returns:
+        tuple: (is_valid_hardhat: bool, category_label: str)
+               category_label: 'HARD_HAT', 'BASEBALL_CAP', 'BIKE_HELMET', or 'NO_HEADWEAR'
+    """
+    if head_crop is None or head_crop.size == 0:
+        return False, "NO_HEADWEAR"
+
+    h, w, _ = head_crop.shape
+    if h < 20 or w < 20:
+        return False, "NO_HEADWEAR"
+
+    # Analyze upper 60% of the headwear (the dome/crown region)
+    dome = head_crop[:max(int(h * 0.65), 14), :]
+    gray = cv2.cvtColor(dome, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(dome, cv2.COLOR_BGR2HSV)
+
+    # 1. Edge & Vent Density Analysis
+    # Bike helmets have large airflow vents & aggressive ribs causing extreme Laplacian variance
+    lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    if lap_var > 720:
+        # High frequency edges from bicycle helmet vents or busy graphic embroidery
+        return False, "BIKE_HELMET"
+
+    # 2. Color & Material Uniformity
+    # Industrial hard hats (OSHA / EN 397) are solid molded polymer:
+    # - Standard White: Low Saturation (<45) and High Value (>150)
+    # - Hi-Vis Industrial Colors: Safety Yellow, Orange, Blue, Red, Green
+    h_channel = hsv[:, :, 0]
+    s_channel = hsv[:, :, 1]
+    v_channel = hsv[:, :, 2]
+
+    # White polymer shell
+    is_white_hardhat = (np.mean(s_channel) < 45) and (np.mean(v_channel) > 150)
+
+    # Hi-vis safety colors
+    yellow_mask = (h_channel >= 18) & (h_channel <= 40) & (s_channel > 60) & (v_channel > 95)
+    orange_mask = (h_channel >= 7) & (h_channel < 18) & (s_channel > 70) & (v_channel > 100)
+    blue_mask = (h_channel >= 90) & (h_channel <= 135) & (s_channel > 55) & (v_channel > 75)
+    red_mask = ((h_channel <= 7) | (h_channel >= 170)) & (s_channel > 70) & (v_channel > 80)
+    green_mask = (h_channel >= 40) & (h_channel <= 85) & (s_channel > 55) & (v_channel > 75)
+
+    safety_color_ratio = np.mean(yellow_mask | orange_mask | blue_mask | red_mask | green_mask)
+
+    if is_white_hardhat or safety_color_ratio > 0.28:
+        return True, "HARD_HAT"
+
+    # Dark, dull, or cloth fabric (typical of baseball caps, beanies, or casual hats)
+    # Casual caps are dark fabric (black, navy, grey, dark green) or low safety saturation
+    if safety_color_ratio < 0.15 and not is_white_hardhat:
+        return False, "BASEBALL_CAP"
+
+    # If marginal, check dome shape and edge smoothness
+    if lap_var < 350 and np.mean(v_channel) > 110:
+        return True, "HARD_HAT"
+
+    return False, "BASEBALL_CAP"
+
+
 class SpatialWorkerTracker:
     """
     Tracks workers across frames using spatial IoU.
@@ -162,7 +225,8 @@ class PPEDetector:
 
     def detect(self, frame, camera_id="Cam_01", save_snapshots=True):
         """
-        Runs edge-accelerated YOLOX detection, spatial tracking, and deduplicated snapshot capture.
+        Runs edge-accelerated YOLOX detection, strict human validation, 
+        industrial hard hat verification, and deduplicated snapshot capture.
         """
         self.frame_count += 1
         orig_h, orig_w, _ = frame.shape
@@ -193,14 +257,35 @@ class PPEDetector:
                 cls_name = CLASSES[cls_id] if cls_id < len(CLASSES) else "Unknown"
                 
                 if cls_name == "Person":
+                    # --- STRICT PERSON VALIDATION ---
+                    # Reject background wall art, posters, and 2D t-shirt prints:
+                    # 1. Require strong person confidence score (>= 0.42)
+                    if score < 0.42:
+                        continue
+                    
+                    pw = x2 - x1
+                    ph = y2 - y1
+                    # 2. Minimum human physical dimensions (at least 100px tall and 40px wide)
+                    # Discards small 40x40 or 50x50 t-shirt chest graphics and small wall frames
+                    if ph < 100 or pw < 40:
+                        continue
+                    
+                    # 3. Human vertical aspect ratio: real humans have height >= 1.10 * width
+                    # Discards wide/square posters and flat t-shirt decals
+                    if (ph / float(pw)) < 1.10:
+                        continue
+                        
                     detected_person_boxes.append([x1, y1, x2, y2])
+
                 else:
-                    detected_ppe.append({
-                        "bbox": [x1, y1, x2, y2],
-                        "score": round(score, 2),
-                        "class_id": cls_id,
-                        "class_name": cls_name
-                    })
+                    # Filter PPE bounding boxes
+                    if score >= 0.28:
+                        detected_ppe.append({
+                            "bbox": [x1, y1, x2, y2],
+                            "score": round(score, 2),
+                            "class_id": cls_id,
+                            "class_name": cls_name
+                        })
 
         annotated = frame.copy()
         now = time.time()
@@ -215,16 +300,14 @@ class PPEDetector:
             pw = px2 - px1
             ph = py2 - py1
             
-            if pw < 20 or ph < 30:
-                continue
-                
-            head_box = [px1, py1, px2, py1 + int(ph * 0.45)]
+            head_box = [px1, max(0, py1 - int(ph * 0.10)), px2, py1 + int(ph * 0.45)]
             feet_box = [px1, py1 + int(ph * 0.65), px2, py2]
             
-            has_helmet = False
+            has_raw_helmet = False
             has_no_helmet = False
             has_shoes = False
             has_no_shoes = False
+            raw_helmet_box = None
             
             for ppe in detected_ppe:
                 p_box = ppe["bbox"]
@@ -232,24 +315,58 @@ class PPEDetector:
                 
                 if p_cls in ("Helmet", "No_helmet"):
                     if box_containment(p_box, head_box) or box_iou(p_box, head_box) > 0.08:
-                        if p_cls == "Helmet": has_helmet = True
-                        if p_cls == "No_helmet": has_no_helmet = True
+                        if p_cls == "Helmet":
+                            has_raw_helmet = True
+                            raw_helmet_box = p_box
+                        if p_cls == "No_helmet":
+                            has_no_helmet = True
                         
                 elif p_cls in ("Safety_shoes", "No_SafetyShoes"):
                     if box_containment(p_box, feet_box) or box_iou(p_box, feet_box) > 0.05:
                         if p_cls == "Safety_shoes": has_shoes = True
                         if p_cls == "No_SafetyShoes": has_no_shoes = True
 
+            # --- HARD HAT VS BASEBALL CAP / BIKE HELMET VERIFICATION ---
+            has_verified_hardhat = False
+            headwear_type = "NO_HEADWEAR"
+
+            if has_raw_helmet:
+                hx1, hy1, hx2, hy2 = raw_helmet_box if raw_helmet_box else head_box
+                hx1 = max(0, min(orig_w - 1, hx1))
+                hy1 = max(0, min(orig_h - 1, hy1))
+                hx2 = max(0, min(orig_w - 1, hx2))
+                hy2 = max(0, min(orig_h - 1, hy2))
+                
+                head_crop = frame[hy1:hy2, hx1:hx2]
+                is_valid_hardhat, headwear_type = verify_industrial_hard_hat(head_crop)
+                
+                if is_valid_hardhat:
+                    has_verified_hardhat = True
+                else:
+                    has_verified_hardhat = False
+            else:
+                has_verified_hardhat = False
+
+            # Determine PPE Compliance / Violations
             missing_items = []
-            if has_no_helmet or not has_helmet:
+
+            if has_no_helmet:
                 missing_items.append("No Helmet")
+            elif not has_verified_hardhat:
+                if headwear_type == "BASEBALL_CAP":
+                    missing_items.append("Non-compliant Cap (Hard Hat Required)")
+                elif headwear_type == "BIKE_HELMET":
+                    missing_items.append("Non-compliant Bike Helmet (Hard Hat Required)")
+                else:
+                    missing_items.append("No Helmet")
+
             if has_no_shoes:
                 missing_items.append("No Safety Shoes")
 
             is_violation = len(missing_items) > 0
             
             # Identity Recognition Cadence
-            needs_face_id = (track["name"] in ("Unidentified Worker", "Unknown Worker")) or (self.frame_count % 10 == 0)
+            needs_face_id = (track["name"] in ("Unidentified Worker", "Unknown Worker")) or (self.frame_count % 8 == 0)
             if needs_face_id:
                 person_crop = frame[py1:py2, px1:px2]
                 face_result = self.face_system.recognize_in_crop(person_crop)
@@ -272,10 +389,7 @@ class PPEDetector:
                     "face_conf": face_conf
                 })
                 
-                # --- DEDUPLICATED SNAPSHOT ENGINE ---
-                # A snapshot is ONLY created if:
-                # 1. This worker has NOT logged a snapshot yet for this incident, OR
-                # 2. More than 180 seconds have elapsed for an ongoing persistent violation.
+                # Single incident snapshot deduplication
                 time_since_last = now - track["last_time"]
                 is_fresh_incident = not track["logged"]
                 re_alert_due = (track["logged"] and time_since_last > self.tracker.re_alert_interval)
@@ -312,23 +426,23 @@ class PPEDetector:
                     
                     track["logged"] = True
                     track["last_time"] = now
-                    print(f"[INCIDENT LOGGED] Track #{tid} ({worker_name}) - Missing: {missing_items}")
+                    print(f"[INCIDENT LOGGED] Track #{tid} ({worker_name}) - Violation: {missing_items}")
 
-                # Draw violation box (Red)
+                # Draw violation styling: Red
                 color = (40, 40, 235)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 3)
                 
                 name_tag = f"VIOLATION: {worker_name}" + (" [MATCH]" if is_target else "")
-                sub_label = f"Missing: {', '.join(missing_items)}"
+                sub_label = f"Violation: {', '.join(missing_items)}"
                 
-                cv2.rectangle(annotated, (px1, max(0, py1 - 44)), (px1 + 340, py1), color, -1)
+                cv2.rectangle(annotated, (px1, max(0, py1 - 44)), (px1 + 380, py1), color, -1)
                 cv2.putText(annotated, name_tag, (px1 + 6, max(16, py1 - 25)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
                 cv2.putText(annotated, sub_label, (px1 + 6, max(36, py1 - 6)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.46, (240, 240, 240), 1)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (240, 240, 240), 1)
 
             else:
-                # If worker has resolved their violation while on camera, reset logged flag
+                # Compliant worker
                 if track["logged"]:
                     track["logged"] = False
                     
@@ -337,14 +451,16 @@ class PPEDetector:
                     "worker_name": worker_name,
                     "bbox": [px1, py1, px2, py2]
                 })
-                # Compliant box (Green)
+                # Compliant styling: Emerald Green
                 color = (60, 200, 40)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
                 
                 name_tag = f"COMPLIANT: {worker_name}" + (" [VERIFIED]" if is_target else "")
-                cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 280, py1), color, -1)
-                cv2.putText(annotated, name_tag, (px1 + 6, max(18, py1 - 7)), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+                sub_tag = "Hard Hat Verified" if has_verified_hardhat else "PPE OK"
+                
+                cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 300, py1), color, -1)
+                cv2.putText(annotated, f"{name_tag} ({sub_tag})", (px1 + 6, max(18, py1 - 7)), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 2)
 
         # Draw PPE items bounding boxes
         for ppe in detected_ppe:
