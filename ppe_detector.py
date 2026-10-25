@@ -181,7 +181,7 @@ def is_architectural_pillar(crop, box, orig_h, score=0.5):
     return False
 
 
-def verify_industrial_hard_hat(head_crop):
+def verify_industrial_hard_hat(head_crop, yolo_score=0.5):
     """
     Distinguishes genuine industrial safety helmets (Hard Hats - OSHA/EN 397 standard)
     from casual headwear (baseball caps, cloth hats, beanies) and bicycle helmets.
@@ -190,44 +190,96 @@ def verify_industrial_hard_hat(head_crop):
         return False, "NO_HEADWEAR"
 
     h, w, _ = head_crop.shape
-    if h < 20 or w < 20:
+    if h < 16 or w < 16:
         return False, "NO_HEADWEAR"
 
-    dome = head_crop[:max(int(h * 0.65), 14), :]
+    # If YOLOX model predicted Helmet with strong confidence (>= 0.48), trust it as genuine Hard Hat
+    if yolo_score >= 0.48:
+        return True, "HARD_HAT"
+
+    dome = head_crop[:max(int(h * 0.70), 12), :]
     gray = cv2.cvtColor(dome, cv2.COLOR_BGR2GRAY)
     hsv = cv2.cvtColor(dome, cv2.COLOR_BGR2HSV)
 
     # Vent density: Bike helmets have large air vents causing extreme Laplacian variance
     lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    if lap_var > 720:
+    if lap_var > 950:
         return False, "BIKE_HELMET"
 
-    h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
 
     # White polymer shell
-    is_white_hardhat = (np.mean(s_channel) < 45) and (np.mean(v_channel) > 150)
+    is_white_hardhat = (np.mean(s_channel) < 55) and (np.mean(v_channel) > 125)
 
     # Hi-vis safety colors (Yellow, Orange, Blue, Red, Green)
-    yellow_mask = (h_channel >= 18) & (h_channel <= 40) & (s_channel > 60) & (v_channel > 95)
-    orange_mask = (h_channel >= 7) & (h_channel < 18) & (s_channel > 70) & (v_channel > 100)
-    blue_mask = (h_channel >= 90) & (h_channel <= 135) & (s_channel > 55) & (v_channel > 75)
-    red_mask = ((h_channel <= 7) | (h_channel >= 170)) & (s_channel > 70) & (v_channel > 80)
-    green_mask = (h_channel >= 40) & (h_channel <= 85) & (s_channel > 55) & (v_channel > 75)
+    h_channel = hsv[:, :, 0]
+    yellow_mask = (h_channel >= 15) & (h_channel <= 42) & (s_channel > 45) & (v_channel > 75)
+    orange_mask = (h_channel >= 6) & (h_channel < 18) & (s_channel > 55) & (v_channel > 80)
+    blue_mask = (h_channel >= 88) & (h_channel <= 138) & (s_channel > 40) & (v_channel > 60)
+    red_mask = ((h_channel <= 8) | (h_channel >= 168)) & (s_channel > 55) & (v_channel > 65)
+    green_mask = (h_channel >= 40) & (h_channel <= 85) & (s_channel > 40) & (v_channel > 60)
 
     safety_color_ratio = np.mean(yellow_mask | orange_mask | blue_mask | red_mask | green_mask)
 
-    if is_white_hardhat or safety_color_ratio > 0.28:
+    if is_white_hardhat or safety_color_ratio > 0.16:
         return True, "HARD_HAT"
 
-    if safety_color_ratio < 0.15 and not is_white_hardhat:
-        return False, "BASEBALL_CAP"
-
-    if lap_var < 350 and np.mean(v_channel) > 110:
+    if yolo_score >= 0.38 and lap_var < 550:
         return True, "HARD_HAT"
 
     return False, "BASEBALL_CAP"
+
+
+def is_valid_human_subject(person_crop, head_crop, face_system, score=0.5, has_helmet=False):
+    """
+    Distinguishes genuine living human workers from non-human objects:
+    hanging jackets, coats on coat racks, pillows on couches, chairs, cushions, curtains.
+    
+    A valid human subject must exhibit:
+    1. Human physical aspect ratio (height >= 1.25 * width)
+    2. A human face (detected by YuNet) OR
+    3. An industrial safety helmet OR
+    4. Human skin tones in the head/neck area OR
+    5. High model confidence (score >= 0.72) with human proportions.
+    """
+    if person_crop is None or person_crop.size == 0:
+        return False
+
+    ph, pw = person_crop.shape[:2]
+    if ph < 80 or pw < 25:
+        return False
+
+    aspect = ph / float(pw)
+    # Reject horizontal or square objects (pillows, cushions, folded jackets)
+    if aspect < 1.22:
+        return False
+
+    if has_helmet:
+        return True
+
+    # 1. Face detection in upper region
+    if head_crop is not None and head_crop.size > 0:
+        hh, hw = head_crop.shape[:2]
+        if hh >= 20 and hw >= 20:
+            face_result = face_system.recognize_in_crop(head_crop)
+            if face_result and face_result.get("face_box") is not None:
+                return True
+
+            # 2. Skin tone analysis in head/neck
+            ycrcb = cv2.cvtColor(head_crop, cv2.COLOR_BGR2YCrCb)
+            cr = ycrcb[:, :, 1]
+            cb = ycrcb[:, :, 2]
+            skin_mask = (cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)
+            skin_ratio = float(np.mean(skin_mask))
+            if skin_ratio >= 0.035:
+                return True
+
+    # 3. High model confidence with standing/walking human proportions
+    if score >= 0.72 and 1.35 <= aspect <= 3.8:
+        return True
+
+    return False
 
 
 class SpatialWorkerTracker:
@@ -273,7 +325,14 @@ class SpatialWorkerTracker:
                 "name": "Unidentified Worker",
                 "conf": 0.0,
                 "last_time": 0.0,
-                "face_res": None
+                "face_res": None,
+                # Anti-flicker temporal state
+                "helmet_state": "UNCERTAIN",
+                "consecutive_helmet": 0,
+                "consecutive_no_helmet": 0,
+                "violation_confirmed": False,
+                "violation_frames": 0,
+                "recent_votes": []
             }
             self.tracks[tid] = new_track
             matched.append((tid, new_track, detected_boxes[idx]))
@@ -335,8 +394,8 @@ class PPEDetector:
 
         scale = min(self.test_size[0] / orig_h, self.test_size[1] / orig_w)
         
-        detected_person_boxes = []
-        detected_ppe = []
+        raw_person_candidates = []
+        raw_ppe_candidates = []
 
         if outputs[0] is not None:
             output = outputs[0].cpu().numpy()
@@ -352,57 +411,53 @@ class PPEDetector:
                 cls_name = CLASSES[cls_id] if cls_id < len(CLASSES) else "Unknown"
                 
                 if cls_name == "Person":
-                    # --- REJECT POSTERS, T-SHIRT PRINTS & ARCHITECTURAL PILLARS ---
-                    # 1. Require strong person confidence score (>= 0.48)
-                    if score < 0.48:
-                        continue
-                    
                     pw = x2 - x1
                     ph = y2 - y1
-                    # 2. Minimum human physical dimensions (at least 90px tall and 30px wide)
-                    if ph < 90 or pw < 30:
-                        continue
-                    
-                    # 3. Reject flat posters/prints (aspect < 1.15)
-                    aspect = ph / float(pw)
-                    if aspect < 1.15:
-                        continue
-
-                    # 4. Reject entrance pillars, columns, and structural posts
-                    person_crop = frame[max(0, y1):min(orig_h, y2), max(0, x1):min(orig_w, x2)]
-                    if is_architectural_pillar(person_crop, [x1, y1, x2, y2], orig_h, score=score):
-                        continue
-                        
-                    detected_person_boxes.append([x1, y1, x2, y2])
-
-                elif cls_name in ("Safety_shoes", "No_SafetyShoes"):
-                    # Strictly evaluate footwear certainty:
-                    # 'if unable to classify into safety shoes or no safety shoes, do not detect them'
-                    crop = frame[max(0, y1):min(orig_h, y2), max(0, x1):min(orig_w, x2)]
-                    verified_cls, verified_score = evaluate_footwear_certainty(crop, score, cls_name)
-                    if verified_cls is not None:
-                        detected_ppe.append({
-                            "bbox": [x1, y1, x2, y2],
-                            "score": verified_score,
-                            "class_id": CLASSES.index(verified_cls),
-                            "class_name": verified_cls
-                        })
-
-                else: # Helmet / No_helmet
-                    if score >= 0.32:
-                        detected_ppe.append({
+                    if score >= 0.48 and ph >= 80 and pw >= 25:
+                        raw_person_candidates.append([x1, y1, x2, y2, score])
+                else:
+                    # Raw candidate PPE items (Helmet, No_helmet, Safety_shoes, No_SafetyShoes)
+                    if score >= 0.28:
+                        raw_ppe_candidates.append({
                             "bbox": [x1, y1, x2, y2],
                             "score": round(score, 2),
                             "class_id": cls_id,
                             "class_name": cls_name
                         })
 
+        # --- STEP 1: VALIDATE LIVING HUMAN WORKERS (REJECT COATS, JACKETS, PILLOWS) ---
+        detected_person_boxes = []
+        for cand in raw_person_candidates:
+            cx1, cy1, cx2, cy2, c_score = cand
+            c_crop = frame[cy1:cy2, cx1:cx2]
+            head_h = max(int((cy2 - cy1) * 0.35), 18)
+            h_crop = frame[cy1:min(orig_h, cy1 + head_h), cx1:cx2]
+
+            # Check if there is an overlapping Helmet candidate in head region
+            has_helmet_cand = any(
+                p["class_name"] == "Helmet" and p["score"] >= 0.38 and
+                (box_containment(p["bbox"], [cx1, cy1, cx2, cy1 + head_h]) > 0.20 or
+                 box_iou(p["bbox"], [cx1, cy1, cx2, cy1 + head_h]) > 0.08)
+                for p in raw_ppe_candidates
+            )
+
+            # Check architectural pillar or static vertical column
+            if is_architectural_pillar(c_crop, [cx1, cy1, cx2, cy2], orig_h, score=c_score):
+                continue
+
+            # Verify genuine living human worker (eliminates jackets, coats on racks, pillows)
+            if not is_valid_human_subject(c_crop, h_crop, self.face_system, score=c_score, has_helmet=has_helmet_cand):
+                continue
+
+            detected_person_boxes.append([cx1, cy1, cx2, cy2])
+
         annotated = frame.copy()
         now = time.time()
         violations_in_frame = []
         compliant_in_frame = []
+        final_ppe_to_draw = []
 
-        # Run spatial tracker across detected person boxes
+        # Run spatial tracker across validated human workers
         tracked_workers = self.tracker.update(detected_person_boxes)
 
         for tid, track, pbox in tracked_workers:
@@ -410,90 +465,161 @@ class PPEDetector:
             pw = px2 - px1
             ph = py2 - py1
             
-            head_box = [px1, max(0, py1 - int(ph * 0.10)), px2, py1 + int(ph * 0.45)]
+            head_box = [px1, max(0, py1 - int(ph * 0.12)), px2, py1 + int(ph * 0.38)]
             feet_box = [px1, py1 + int(ph * 0.65), px2, py2]
-            
-            has_raw_helmet = False
-            has_no_helmet = False
-            has_verified_shoes = False
-            has_no_shoes_flag = False
-            raw_helmet_box = None
-            
-            for ppe in detected_ppe:
+
+            # --- STEP 2: HEADWEAR ANALYSIS WITH MUTUAL EXCLUSION & HELMET BIAS ---
+            best_helmet = None
+            best_helmet_score = 0.0
+            best_no_helmet = None
+            best_no_helmet_score = 0.0
+
+            for ppe in raw_ppe_candidates:
                 p_box = ppe["bbox"]
                 p_cls = ppe["class_name"]
-                
-                if p_cls in ("Helmet", "No_helmet"):
-                    if box_containment(p_box, head_box) or box_iou(p_box, head_box) > 0.08:
-                        if p_cls == "Helmet":
-                            has_raw_helmet = True
-                            raw_helmet_box = p_box
-                        if p_cls == "No_helmet":
-                            has_no_helmet = True
-                        
-                elif p_cls in ("Safety_shoes", "No_SafetyShoes"):
-                    if box_containment(p_box, feet_box) or box_iou(p_box, feet_box) > 0.05:
-                        if p_cls == "Safety_shoes":
-                            has_verified_shoes = True
-                        elif p_cls == "No_SafetyShoes":
-                            has_no_shoes_flag = True
+                p_score = ppe["score"]
 
-            # Also inspect bottom 12% feet crop for decisive slippers/barefoot (exposed skin)
+                if p_cls in ("Helmet", "No_helmet"):
+                    overlap = box_containment(p_box, head_box) > 0.22 or box_iou(p_box, head_box) > 0.07
+                    if overlap:
+                        if p_cls == "Helmet" and p_score > best_helmet_score:
+                            best_helmet = ppe
+                            best_helmet_score = p_score
+                        elif p_cls == "No_helmet" and p_score > best_no_helmet_score:
+                            best_no_helmet = ppe
+                            best_no_helmet_score = p_score
+
+            # Single-frame verdict on headwear:
+            frame_verdict = "UNCERTAIN"
+            matched_head_ppe = None
+
+            if best_helmet is not None and best_no_helmet is not None:
+                # Both detected on head: Helmet takes priority unless No_helmet is overwhelmingly dominant
+                if best_helmet_score >= best_no_helmet_score - 0.15:
+                    frame_verdict = "HELMET"
+                    matched_head_ppe = best_helmet
+                elif best_no_helmet_score >= 0.65 and best_helmet_score < 0.35:
+                    frame_verdict = "NO_HELMET"
+                    matched_head_ppe = best_no_helmet
+                else:
+                    frame_verdict = "HELMET"
+                    matched_head_ppe = best_helmet
+
+            elif best_helmet is not None:
+                if best_helmet_score >= 0.35:
+                    frame_verdict = "HELMET"
+                    matched_head_ppe = best_helmet
+
+            elif best_no_helmet is not None:
+                # Explicit No_helmet requires score >= 0.48 AND confirmed face or skin tone presence
+                head_crop = frame[max(0, head_box[1]):min(orig_h, head_box[3]), max(0, head_box[0]):min(orig_w, head_box[2])]
+                has_skin_or_face = False
+                if head_crop.size > 0:
+                    ycrcb = cv2.cvtColor(head_crop, cv2.COLOR_BGR2YCrCb)
+                    skin_cr = ycrcb[:, :, 1]
+                    skin_cb = ycrcb[:, :, 2]
+                    skin_mask = (skin_cr >= 133) & (skin_cr <= 173) & (skin_cb >= 77) & (skin_cb <= 127)
+                    if float(np.mean(skin_mask)) >= 0.035:
+                        has_skin_or_face = True
+                    elif track.get("face_res") and track["face_res"].get("face_box") is not None:
+                        has_skin_or_face = True
+
+                if best_no_helmet_score >= 0.48 and has_skin_or_face:
+                    frame_verdict = "NO_HELMET"
+                    matched_head_ppe = best_no_helmet
+
+            # --- STEP 3: ANTI-FLICKER TEMPORAL DEBOUNCE ENGINE ---
+            if "recent_votes" not in track:
+                track["recent_votes"] = []
+            track["recent_votes"].append(frame_verdict)
+            if len(track["recent_votes"]) > 15:
+                track["recent_votes"].pop(0)
+
+            if frame_verdict == "HELMET":
+                track["consecutive_helmet"] += 1
+                track["consecutive_no_helmet"] = 0
+                if track["consecutive_helmet"] >= 3:
+                    track["helmet_state"] = "HELMET"
+                    track["violation_confirmed"] = False
+                    track["violation_frames"] = 0
+
+            elif frame_verdict == "NO_HELMET":
+                track["consecutive_no_helmet"] += 1
+                track["consecutive_helmet"] = 0
+
+                # Anti-flicker: If the person was confirmed wearing a helmet,
+                # do NOT switch to NO_HELMET on momentary jitter!
+                # Require at least 8 consecutive frames of No_helmet and 65%+ recent votes!
+                if track["helmet_state"] == "HELMET":
+                    recent_no_pct = track["recent_votes"].count("NO_HELMET") / max(len(track["recent_votes"]), 1)
+                    if track["consecutive_no_helmet"] >= 8 and recent_no_pct >= 0.65:
+                        track["helmet_state"] = "NO_HELMET"
+                        track["violation_confirmed"] = True
+                else:
+                    if track["consecutive_no_helmet"] >= 4:
+                        track["helmet_state"] = "NO_HELMET"
+                        track["violation_confirmed"] = True
+
+            elif frame_verdict == "UNCERTAIN":
+                # Maintain confirmed HELMET status! No resetting or flickering!
+                pass
+
+            # --- STEP 4: FOOTWEAR EVALUATION (STRICT CERTAINTY POLICY) ---
+            has_verified_shoes = False
+            has_no_shoes_flag = False
+            matched_foot_ppe = None
+
+            for ppe in raw_ppe_candidates:
+                p_box = ppe["bbox"]
+                p_cls = ppe["class_name"]
+                p_score = ppe["score"]
+
+                if p_cls in ("Safety_shoes", "No_SafetyShoes"):
+                    if box_containment(p_box, feet_box) > 0.20 or box_iou(p_box, feet_box) > 0.05:
+                        fcrop = frame[max(0, p_box[1]):min(orig_h, p_box[3]), max(0, p_box[0]):min(orig_w, p_box[2])]
+                        v_cls, v_score = evaluate_footwear_certainty(fcrop, p_score, p_cls)
+                        if v_cls == "Safety_shoes":
+                            has_verified_shoes = True
+                            matched_foot_ppe = {"bbox": p_box, "score": v_score, "class_name": "Safety_shoes"}
+                        elif v_cls == "No_SafetyShoes":
+                            has_no_shoes_flag = True
+                            matched_foot_ppe = {"bbox": p_box, "score": v_score, "class_name": "No_SafetyShoes"}
+
+            # Auxiliary check on bottom feet region for exposed skin (slippers/barefoot)
             if not has_no_shoes_flag and not has_verified_shoes:
                 feet_crop = frame[py1 + int(ph * 0.88):py2, px1:px2]
                 if feet_crop.size > 0:
                     ycrcb = cv2.cvtColor(feet_crop, cv2.COLOR_BGR2YCrCb)
-                    skin_ycrcb = (ycrcb[:, :, 1] >= 133) & (ycrcb[:, :, 1] <= 173) & (ycrcb[:, :, 2] >= 77) & (ycrcb[:, :, 2] <= 127)
+                    cr = ycrcb[:, :, 1]
+                    cb = ycrcb[:, :, 2]
+                    skin_cr = (cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)
                     hsv = cv2.cvtColor(feet_crop, cv2.COLOR_BGR2HSV)
-                    skin_hsv = (hsv[:, :, 0] <= 25) & (hsv[:, :, 1] >= 35) & (hsv[:, :, 1] <= 210) & (hsv[:, :, 2] >= 45)
-                    feet_skin_ratio = max(float(np.mean(skin_ycrcb)), float(np.mean(skin_hsv)))
+                    skin_h = (hsv[:, :, 0] <= 25) & (hsv[:, :, 1] >= 35) & (hsv[:, :, 1] <= 210) & (hsv[:, :, 2] >= 45)
+                    feet_skin_ratio = max(float(np.mean(skin_cr)), float(np.mean(skin_h)))
                     if feet_skin_ratio >= 0.14:
                         has_no_shoes_flag = True
                         s_box = [px1, py1 + int(ph * 0.85), px2, py2]
-                        detected_ppe.append({
-                            "bbox": s_box,
-                            "score": round(feet_skin_ratio, 2),
-                            "class_id": 3,
-                            "class_name": "No_SafetyShoes"
-                        })
+                        matched_foot_ppe = {"bbox": s_box, "score": round(feet_skin_ratio, 2), "class_name": "No_SafetyShoes"}
 
-            # --- HARD HAT VS BASEBALL CAP / BIKE HELMET VERIFICATION ---
-            has_verified_hardhat = False
-            headwear_type = "NO_HEADWEAR"
-
-            if has_raw_helmet:
-                hx1, hy1, hx2, hy2 = raw_helmet_box if raw_helmet_box else head_box
-                hx1 = max(0, min(orig_w - 1, hx1))
-                hy1 = max(0, min(orig_h - 1, hy1))
-                hx2 = max(0, min(orig_w - 1, hx2))
-                hy2 = max(0, min(orig_h - 1, hy2))
-                
-                head_crop = frame[hy1:hy2, hx1:hx2]
-                is_valid_hardhat, headwear_type = verify_industrial_hard_hat(head_crop)
-                has_verified_hardhat = is_valid_hardhat
-
-            # Determine PPE Compliance / Violations
+            # --- STEP 5: COMPLIANCE & VIOLATION ASSESSMENT ---
             missing_items = []
-
-            # 1. Helmet checks
-            if has_no_helmet:
+            if track["helmet_state"] == "NO_HELMET" and track["violation_confirmed"]:
                 missing_items.append("No Helmet")
-            elif not has_verified_hardhat:
-                if headwear_type == "BASEBALL_CAP":
-                    missing_items.append("Non-compliant Cap (Hard Hat Required)")
-                elif headwear_type == "BIKE_HELMET":
-                    missing_items.append("Non-compliant Bike Helmet (Hard Hat Required)")
-                else:
-                    missing_items.append("No Helmet")
 
-            # 2. Footwear checks (STRICT CERTAINTY POLICY)
-            # Only flag violation if decisively certain (slippers/barefoot or explicit No_SafetyShoes)
-            # If footwear is ambiguous/uncertain, do NOT detect and do NOT penalize!
             if has_no_shoes_flag:
                 missing_items.append("No Safety Shoes (Slippers/Casual Footwear)")
 
             is_violation = len(missing_items) > 0
-            
+
+            # Attach verified PPE items to draw list
+            if track["helmet_state"] == "HELMET" and matched_head_ppe and matched_head_ppe["class_name"] == "Helmet":
+                final_ppe_to_draw.append(matched_head_ppe)
+            elif track["helmet_state"] == "NO_HELMET" and track["violation_confirmed"] and matched_head_ppe and matched_head_ppe["class_name"] == "No_helmet":
+                final_ppe_to_draw.append(matched_head_ppe)
+
+            if matched_foot_ppe:
+                final_ppe_to_draw.append(matched_foot_ppe)
+
             # Identity Recognition Cadence
             needs_face_id = (track["name"] in ("Unidentified Worker", "Unknown Worker")) or (self.frame_count % 8 == 0)
             if needs_face_id:
@@ -506,8 +632,6 @@ class PPEDetector:
             worker_name = track["name"]
             face_conf = track["conf"]
             face_result = track["face_res"]
-
-            # Any registered worker in the face system is treated as an enrolled target
             is_target = worker_name not in ("Unidentified Worker", "Unknown Worker", "Unknown", "")
 
             if is_violation:
@@ -523,7 +647,8 @@ class PPEDetector:
                 is_fresh_incident = not track["logged"]
                 re_alert_due = (track["logged"] and time_since_last > self.tracker.re_alert_interval)
 
-                if save_snapshots and (is_fresh_incident or re_alert_due):
+                # Only save snapshot if confirmed sustained violation
+                if save_snapshots and track["violation_confirmed"] and (is_fresh_incident or re_alert_due):
                     uid = uuid.uuid4().hex[:8]
                     ts_str = time.strftime("%Y%m%d_%H%M%S")
                     
@@ -556,7 +681,7 @@ class PPEDetector:
                     track["last_time"] = now
                     print(f"[INCIDENT LOGGED] Track #{tid} ({worker_name}) - Violation: {missing_items}")
 
-                # Draw violation box (Red)
+                # Draw violation box (Solid Red)
                 color = (40, 40, 235)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 3)
                 
@@ -570,7 +695,7 @@ class PPEDetector:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.40, (240, 240, 240), 1)
 
             else:
-                if track["logged"]:
+                if track.get("consecutive_helmet", 0) >= 5:
                     track["logged"] = False
                     
                 compliant_in_frame.append({
@@ -578,6 +703,7 @@ class PPEDetector:
                     "worker_name": worker_name,
                     "bbox": [px1, py1, px2, py2]
                 })
+                # Draw compliant box (Solid Green)
                 color = (60, 200, 40)
                 cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
                 
@@ -588,8 +714,8 @@ class PPEDetector:
                 cv2.putText(annotated, f"{name_tag} ({sub_tag})", (px1 + 6, max(18, py1 - 7)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.46, (255, 255, 255), 2)
 
-        # Draw PPE items bounding boxes
-        for ppe in detected_ppe:
+        # Draw ONLY validated PPE items attached to confirmed workers (NEVER orphaned objects)
+        for ppe in final_ppe_to_draw:
             bx1, by1, bx2, by2 = ppe["bbox"]
             pcls = ppe["class_name"]
             pcolor = CLASS_COLORS.get(pcls, (255, 255, 0))
