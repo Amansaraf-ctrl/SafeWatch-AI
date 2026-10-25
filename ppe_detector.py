@@ -507,7 +507,8 @@ class PPEDetector:
             face_conf = track["conf"]
             face_result = track["face_res"]
 
-            is_target = any(k in worker_name.lower() for k in ["aman", "vishesh"])
+            # Any registered worker in the face system is treated as an enrolled target
+            is_target = worker_name not in ("Unidentified Worker", "Unknown Worker", "Unknown", "")
 
             if is_violation:
                 violations_in_frame.append({

@@ -119,44 +119,29 @@ def generate_frames(source="footage", video_file=None):
       3. Standby test screen when awaiting footage
     """
     if source == "cam":
-        cap = None
-        try:
-            # Try Windows DirectShow first for low latency
-            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap = cv2.VideoCapture(0)
-            
-            if cap.isOpened():
-                try:
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    cap.set(cv2.CAP_PROP_FPS, 30)
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"[WEBCAM INIT WARNING] {e}")
-            cap = None
+        # Windows DirectShow backend for zero buffer latency
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
 
-        if cap is None or not cap.isOpened():
-            # If camera 0 cannot be opened, stream standby graphic without crashing
+        if not cap.isOpened():
+            # If camera 0 cannot be opened, stream standby graphic
             while True:
-                standby = make_standby_frame(message="CAMERA 0 BUSY / UNAVAILABLE // SWITCH TO FOOTAGE")
+                standby = make_standby_frame(message="CAMERA 0 UNAVAILABLE // SWITCH TO FOOTAGE")
                 ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 75])
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(0.1)
         else:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             try:
                 while True:
                     t0 = time.time()
-                    try:
-                        ret, frame = cap.read()
-                    except Exception as e:
-                        print(f"[WEBCAM READ WARNING] {e}")
-                        break
-
-                    if not ret or frame is None:
+                    ret, frame = cap.read()
+                    if not ret:
                         time.sleep(0.01)
                         continue
 
@@ -173,14 +158,8 @@ def generate_frames(source="footage", video_file=None):
                     elapsed = time.time() - t0
                     sleep_time = max(0.001, 0.033 - elapsed)
                     time.sleep(sleep_time)
-            except Exception as e:
-                print(f"[WEBCAM STREAM ERROR] {e}")
             finally:
-                if cap is not None:
-                    try:
-                        cap.release()
-                    except Exception:
-                        pass
+                cap.release()
 
     elif source == "footage":
         footages = get_available_footages()
@@ -331,7 +310,7 @@ async def get_enrolled_workers():
 async def enroll_worker(name: str = Form(...), worker_id: str = Form(""), file: UploadFile = File(...)):
     """
     Enrolls a worker's face into SFace & YuNet feature database.
-    Target workers: 'Aman' and 'Vishesh'.
+    Supports registering ANY worker on site for face verification.
     """
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
@@ -344,7 +323,25 @@ async def enroll_worker(name: str = Form(...), worker_id: str = Form(""), file: 
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
 
-    return {"success": True, "message": msg}
+    return {
+        "success": True, 
+        "message": msg,
+        "workers": detector.face_system.list_enrolled()
+    }
+
+
+@app.post("/api/workers/delete/{filename}")
+@app.delete("/api/workers/{filename}")
+async def delete_worker(filename: str):
+    """Unregisters a worker and removes their face embedding from the database."""
+    ok, msg = detector.face_system.delete_face(filename)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {
+        "success": True, 
+        "message": msg,
+        "workers": detector.face_system.list_enrolled()
+    }
 
 
 @app.post("/api/audit")

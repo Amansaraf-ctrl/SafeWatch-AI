@@ -93,14 +93,28 @@ class FaceRecognitionSystem:
         aligned = self.recognizer.alignCrop(image_np, best_face)
         feat = self.recognizer.feature(aligned)
         
+        # Remove previous entry with same filename or name to prevent duplicates
         display_name = f"{name} ({worker_id})" if worker_id else name
+        self.enrolled_faces = [e for e in self.enrolled_faces if e["filename"] != filename and e["name"].lower() != display_name.lower()]
+        
         self.enrolled_faces.append({
             "name": display_name,
             "filename": filename,
             "feature": feat,
             "img_path": str(save_path)
         })
+        print(f"[FACE ENROLL] Enrolled: {display_name} ({filename}) - Total enrolled: {len(self.enrolled_faces)}")
         return True, f"Successfully enrolled worker: {display_name}"
+
+    def delete_face(self, filename):
+        """Removes a registered worker face from disk and updates the in-memory embeddings."""
+        clean_name = Path(filename).name
+        target_path = self.known_dir / clean_name
+        if target_path.exists():
+            target_path.unlink()
+            print(f"[FACE SYSTEM] Deleted worker file: {clean_name}")
+        self.reload_enrolled_faces()
+        return True, f"Successfully removed {clean_name}"
 
     def recognize_in_crop(self, person_crop):
         """
