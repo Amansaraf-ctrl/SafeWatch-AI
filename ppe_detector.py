@@ -530,16 +530,17 @@ class PPEDetector:
                     snap_filename = f"snap_{ts_str}_{uid}.jpg"
                     face_filename = f"face_{ts_str}_{uid}.jpg"
                     
-                    cv2.imwrite(str(SNAPSHOTS_DIR / snap_filename), frame)
+                    # Save pristine high-resolution evidence snapshot (98% JPEG quality for deep zoom inspection)
+                    cv2.imwrite(str(SNAPSHOTS_DIR / snap_filename), frame, [cv2.IMWRITE_JPEG_QUALITY, 98])
                     
                     if face_result and face_result.get("aligned_face") is not None:
-                        cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), face_result["aligned_face"])
+                        cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), face_result["aligned_face"], [cv2.IMWRITE_JPEG_QUALITY, 98])
                     else:
                         person_crop = frame[py1:py2, px1:px2]
                         if person_crop.size > 0:
                             upper_crop = person_crop[:int(ph * 0.4), :]
                             if upper_crop.size > 0:
-                                cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), upper_crop)
+                                cv2.imwrite(str(SNAPSHOTS_DIR / face_filename), upper_crop, [cv2.IMWRITE_JPEG_QUALITY, 98])
 
                     log_violation_to_db(
                         status="VIOLATION",

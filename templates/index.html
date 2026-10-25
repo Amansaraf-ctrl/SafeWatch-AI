@@ -13,17 +13,24 @@
                 extend: {
                     colors: {
                         brand: {
-                            base: '#0B0F19',
-                            card: '#121927',
-                            cardBorder: '#1F2A3E',
-                            subtle: '#26344B',
+                            base: '#06090F',
+                            surface: '#0B111E',
+                            card: '#101827',
+                            cardBorder: '#1A263C',
+                            cardHover: '#23324C',
+                            subtle: '#1E2C44',
                             accent: '#F59E0B',
+                            accentGlow: 'rgba(245, 158, 11, 0.25)',
                             danger: '#EF4444',
+                            dangerGlow: 'rgba(239, 68, 68, 0.25)',
                             success: '#10B981',
-                            cyan: '#06B6D4'
+                            successGlow: 'rgba(16, 185, 129, 0.25)',
+                            cyan: '#00F0FF',
+                            cyanGlow: 'rgba(0, 240, 255, 0.25)'
                         }
                     },
                     fontFamily: {
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
                         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace']
                     }
                 }
@@ -32,52 +39,107 @@
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        .font-mono { font-family: 'JetBrains Mono', monospace; }
-        .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #0B0F19; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #1F2A3E; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #F59E0B; }
-        .glass-panel {
-            background: rgba(18, 25, 39, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(31, 42, 62, 0.9);
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: #06090F;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(245, 158, 11, 0.03) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(0, 240, 255, 0.02) 0%, transparent 40%),
+                linear-gradient(rgba(26, 38, 60, 0.15) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(26, 38, 60, 0.15) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
         }
-        .hud-corner {
+
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Custom Scrollbar */
+        .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #06090F; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #1A263C; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #F59E0B; }
+
+        /* Glassmorphism Panels */
+        .glass-panel {
+            background: rgba(16, 24, 39, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(26, 38, 60, 0.95);
+        }
+
+        .glass-panel-glow {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), 0 0 20px -5px rgba(245, 158, 11, 0.05);
+        }
+
+        /* HUD Reticle Elements */
+        .hud-bracket {
             position: absolute;
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             border-color: #F59E0B;
             pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Pan & Zoom Stage Styling */
+        .zoom-stage-grid {
+            background-color: #030509;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Pulsing Glow Animation */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 0.2; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .pulse-ring {
+            animation: pulse-ring 2.5s infinite ease-in-out;
+        }
+
+        /* Print Media Styles */
+        @media print {
+            body { background: white !important; color: black !important; }
+            header, .glass-panel, #video-stream, .hud-bracket { display: none !important; }
+            #snapshot-modal { position: static !important; display: block !important; background: white !important; }
+            #snapshot-modal img { max-width: 100% !important; }
         }
     </style>
 </head>
-<body class="bg-[#080B11] text-gray-100 min-h-screen flex flex-col selection:bg-amber-500 selection:text-black">
+<body class="bg-[#06090F] text-gray-100 min-h-screen flex flex-col selection:bg-amber-500 selection:text-black antialiased">
 
     <!-- Top Command Navigation Bar -->
     <header class="glass-panel border-b border-brand-cardBorder sticky top-0 z-40 px-4 lg:px-8 py-2.5">
-        <div class="max-w-[1720px] mx-auto flex items-center justify-between">
+        <div class="max-w-[1780px] mx-auto flex items-center justify-between">
             
             <!-- Left: Logo & Engine Identification -->
             <div class="flex items-center space-x-4">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 flex items-center justify-center shadow-lg shadow-amber-500/20 border border-amber-400/30">
+                <div class="relative w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 flex items-center justify-center shadow-lg shadow-amber-500/25 border border-amber-400/40">
                     <i class="fa-solid fa-shield-halved text-white text-lg"></i>
+                    <span class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-brand-base animate-pulse"></span>
                 </div>
                 <div>
                     <div class="flex items-center space-x-2">
-                        <span class="text-lg font-extrabold tracking-tight text-white uppercase">SafeWatch<span class="text-amber-500">.AI</span></span>
-                        <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping mr-1"></span>
-                            <span>GPU TENSOR CORE</span>
+                        <span class="text-lg font-black tracking-tight text-white uppercase">SafeWatch<span class="text-amber-500">.AI</span></span>
+                        <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                            <span>RTX 3050 CUDA ACTIVE</span>
                         </span>
                     </div>
-                    <p class="text-[11px] text-gray-400 font-mono">Autonomous PPE Computer Vision & Face Verification</p>
+                    <p class="text-[11px] text-gray-400 font-mono flex items-center space-x-2">
+                        <span>Autonomous Edge PPE & Biometric Center</span>
+                        <span class="text-gray-600">•</span>
+                        <span class="text-cyan-400 font-semibold">v2.4 Enterprise</span>
+                    </p>
                 </div>
             </div>
 
             <!-- Middle: Live Telemetry & Channel Selector -->
-            <div class="hidden xl:flex items-center space-x-3 bg-brand-base px-3 py-1.5 rounded-xl border border-brand-cardBorder">
+            <div class="hidden xl:flex items-center space-x-3 bg-brand-surface px-3 py-1.5 rounded-xl border border-brand-cardBorder">
                 <!-- Clock -->
                 <div class="flex items-center space-x-2 border-r border-brand-cardBorder pr-3 text-xs font-mono text-gray-300">
                     <i class="fa-regular fa-clock text-amber-500"></i>
@@ -86,11 +148,11 @@
 
                 <!-- Video Channel Switcher Pills -->
                 <div class="flex items-center space-x-1 text-xs">
-                    <button id="btn-chan-footage" onclick="switchChannel('footage')" class="px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition">
+                    <button id="btn-chan-footage" onclick="switchChannel('footage')" class="px-3 py-1 rounded-lg font-mono font-semibold bg-amber-500 text-black shadow flex items-center space-x-1.5 transition">
                         <i class="fa-solid fa-industry"></i>
                         <span>Site Footage</span>
                     </button>
-                    <button id="btn-chan-cam" onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition">
+                    <button id="btn-chan-cam" onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition">
                         <i class="fa-solid fa-video"></i>
                         <span>Live Laptop Cam</span>
                     </button>
@@ -99,28 +161,38 @@
                 <!-- FPS / Inference Latency Pill -->
                 <div class="border-l border-brand-cardBorder pl-3 flex items-center space-x-2 text-xs font-mono">
                     <span class="text-gray-400">LATENCY:</span>
-                    <span id="telemetry-latency" class="text-emerald-400 font-semibold">28ms</span>
-                    <span class="text-gray-500">|</span>
-                    <span id="telemetry-fps" class="text-amber-400 font-semibold">35 FPS</span>
+                    <span id="telemetry-latency" class="text-emerald-400 font-bold">28.5ms</span>
+                    <span class="text-gray-600">|</span>
+                    <span id="telemetry-fps" class="text-amber-400 font-bold">35.0 FPS</span>
                 </div>
             </div>
 
             <!-- Right: Action Center -->
             <div class="flex items-center space-x-2.5">
+                <!-- Audio Alert Toggle -->
+                <button id="btn-audio-toggle" onclick="toggleAudioChime()" title="Toggle Audible Radar Violation Chime" class="w-8 h-8 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-amber-400 transition">
+                    <i id="audio-toggle-icon" class="fa-solid fa-volume-high text-xs"></i>
+                </button>
+
+                <!-- Fullscreen Toggle -->
+                <button onclick="toggleDashboardFullscreen()" title="Toggle Fullscreen Command Center" class="w-8 h-8 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-gray-300 transition">
+                    <i class="fa-solid fa-expand text-xs"></i>
+                </button>
+
                 <!-- Upload Site Video Button -->
-                <button onclick="openFootageModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold flex items-center space-x-2 transition">
+                <button onclick="openFootageModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold font-mono flex items-center space-x-2 transition">
                     <i class="fa-solid fa-file-video text-amber-400"></i>
-                    <span class="hidden sm:inline">Upload Site Video</span>
+                    <span class="hidden sm:inline">Upload Video</span>
                 </button>
 
                 <!-- Registered Personnel Directory Button -->
-                <button onclick="openPersonnelModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold flex items-center space-x-2 transition">
+                <button onclick="openPersonnelModal()" class="px-3 py-1.5 bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 rounded-lg text-xs font-semibold font-mono flex items-center space-x-2 transition">
                     <i class="fa-solid fa-users text-cyan-400"></i>
-                    <span>Registered Workers (<span id="header-worker-count">3</span>)</span>
+                    <span>Workers (<span id="header-worker-count">2</span>)</span>
                 </button>
 
-                <!-- Enroll Face Button -->
-                <button onclick="openEnrollModal()" class="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-black font-bold rounded-lg text-xs shadow-md shadow-amber-500/20 flex items-center space-x-1.5 transition">
+                <!-- Register Worker Button -->
+                <button onclick="openEnrollModal()" class="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-black font-extrabold rounded-lg text-xs font-mono shadow-lg shadow-amber-500/20 flex items-center space-x-1.5 transition">
                     <i class="fa-solid fa-user-plus"></i>
                     <span>+ Register Worker</span>
                 </button>
@@ -129,17 +201,17 @@
     </header>
 
     <!-- Top KPI Telemetry HUD Bar -->
-    <section class="max-w-[1720px] mx-auto px-4 lg:px-8 pt-5 w-full">
+    <section class="max-w-[1780px] mx-auto px-4 lg:px-8 pt-5 w-full">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
             <!-- Metric 1: Overall Compliance Rate -->
-            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden">
+            <div class="glass-panel glass-panel-glow rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden group">
                 <div class="flex items-center space-x-3.5">
                     <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
                         <i class="fa-solid fa-shield-halved text-xl"></i>
                     </div>
                     <div>
-                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Site Compliance Rate</p>
-                        <h3 id="hud-compliance" class="text-2xl font-black text-white mt-0.5">100.0%</h3>
+                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Site Compliance Index</p>
+                        <h3 id="hud-compliance" class="text-2xl font-black text-white mt-0.5 font-mono">100.0%</h3>
                     </div>
                 </div>
                 <div class="text-right">
@@ -148,7 +220,7 @@
             </div>
 
             <!-- Metric 2: Active Violations -->
-            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden">
+            <div class="glass-panel glass-panel-glow rounded-xl p-4 flex items-center justify-between border-brand-cardBorder relative overflow-hidden group">
                 <div class="flex items-center space-x-3.5">
                     <div class="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
                         <i class="fa-solid fa-triangle-exclamation text-xl"></i>
@@ -156,66 +228,69 @@
                     <div>
                         <div class="flex items-center space-x-1.5">
                             <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                            <p class="text-[11px] font-bold text-red-400 uppercase tracking-wider font-mono">Active Violations</p>
+                            <p class="text-[11px] font-bold text-red-400 uppercase tracking-wider font-mono">Active Incidents</p>
                         </div>
-                        <h3 id="hud-active" class="text-2xl font-black text-red-500 mt-0.5">0</h3>
+                        <h3 id="hud-active" class="text-2xl font-black text-red-500 mt-0.5 font-mono">0</h3>
                     </div>
                 </div>
                 <div class="text-right">
-                    <span class="text-[10px] text-gray-400 font-mono">REQUIRE ACTION</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-red-500/10 text-red-400 border border-red-500/20">ACTION REQUIRED</span>
                 </div>
             </div>
 
-            <!-- Metric 3: Total Audited Incidents -->
-            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
+            <!-- Metric 3: Total Recorded Events -->
+            <div class="glass-panel glass-panel-glow rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
                 <div class="flex items-center space-x-3.5">
-                    <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
                         <i class="fa-solid fa-list-check text-xl"></i>
                     </div>
                     <div>
                         <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Total Recorded Events</p>
-                        <h3 id="hud-total" class="text-2xl font-black text-white mt-0.5">0</h3>
+                        <h3 id="hud-total" class="text-2xl font-black text-white mt-0.5 font-mono">0</h3>
                     </div>
                 </div>
                 <div class="text-right">
-                    <span class="text-[10px] text-gray-400 font-mono">TODAY</span>
+                    <span class="text-[10px] text-gray-400 font-mono">AUDITED TODAY</span>
                 </div>
             </div>
 
             <!-- Metric 4: Closed / Resolved Incidents -->
-            <div class="glass-panel rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
+            <div class="glass-panel glass-panel-glow rounded-xl p-4 flex items-center justify-between border-brand-cardBorder">
                 <div class="flex items-center space-x-3.5">
                     <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                         <i class="fa-solid fa-circle-check text-xl"></i>
                     </div>
                     <div>
                         <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">Resolved & Cleared</p>
-                        <h3 id="hud-resolved" class="text-2xl font-black text-emerald-400 mt-0.5">0</h3>
+                        <h3 id="hud-resolved" class="text-2xl font-black text-emerald-400 mt-0.5 font-mono">0</h3>
                     </div>
                 </div>
                 <div class="text-right">
-                    <span class="text-[10px] text-gray-400 font-mono">VERIFIED</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">VERIFIED</span>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Main Command Center Grid: Left 8 cols Video, Right 4 cols Incident Feed -->
-    <main class="max-w-[1720px] mx-auto px-4 lg:px-8 py-5 w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5">
+    <main class="max-w-[1780px] mx-auto px-4 lg:px-8 py-5 w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5">
 
         <!-- Left Column: Industrial CCTV Viewport (8 Cols) -->
         <div class="lg:col-span-8 flex flex-col space-y-3.5">
-            <div class="glass-panel rounded-2xl overflow-hidden shadow-2xl flex flex-col relative border border-brand-cardBorder">
+            <div class="glass-panel glass-panel-glow rounded-2xl overflow-hidden shadow-2xl flex flex-col relative border border-brand-cardBorder">
                 
                 <!-- CCTV Header Strip -->
-                <div class="px-4 py-2.5 bg-brand-base border-b border-brand-cardBorder flex items-center justify-between text-xs font-mono">
+                <div class="px-4 py-2.5 bg-brand-surface border-b border-brand-cardBorder flex items-center justify-between text-xs font-mono">
                     <div class="flex items-center space-x-3">
-                        <div class="flex items-center space-x-1.5 text-red-500 font-bold">
-                            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                        <div class="flex items-center space-x-2 text-red-500 font-bold">
+                            <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
                             <span>LIVE INGEST</span>
                         </div>
-                        <span class="text-gray-500">|</span>
-                        <span id="active-channel-name" class="text-gray-300 font-semibold uppercase">CHANNEL 1: INDUSTRIAL SITE CCTV</span>
+                        <span class="text-gray-600">|</span>
+                        <span id="active-channel-name" class="text-gray-200 font-semibold uppercase flex items-center space-x-1.5">
+                            <i class="fa-solid fa-video text-cyan-400 text-[11px]"></i>
+                            <span>CHANNEL 1: INDUSTRIAL SITE CCTV</span>
+                        </span>
                     </div>
 
                     <!-- Active Video Selector Dropdown -->
@@ -224,96 +299,124 @@
                         <select id="footage-selector" onchange="changeVideoFile(this.value)" class="bg-brand-card border border-brand-cardBorder text-gray-200 text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-amber-500 font-mono">
                             <option value="">Awaiting Footage...</option>
                         </select>
-                        <button onclick="refreshStream()" title="Reload Stream" class="w-7 h-7 rounded-lg bg-brand-card hover:bg-brand-cardBorder flex items-center justify-center text-gray-300 transition">
+                        <button onclick="refreshStream()" title="Reload Video Stream" class="w-7 h-7 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-gray-300 transition">
                             <i class="fa-solid fa-arrows-rotate text-[11px]"></i>
                         </button>
                     </div>
                 </div>
 
                 <!-- Video Canvas Viewport -->
-                <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden select-none">
+                <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden select-none group">
                     <!-- CCTV Screen Corner HUD Brackets -->
-                    <div class="hud-corner top-3 left-3 border-t-2 border-l-2"></div>
-                    <div class="hud-corner top-3 right-3 border-t-2 border-r-2"></div>
-                    <div class="hud-corner bottom-3 left-3 border-b-2 border-l-2"></div>
-                    <div class="hud-corner bottom-3 right-3 border-b-2 border-r-2"></div>
+                    <div class="hud-bracket top-3 left-3 border-t-2 border-l-2"></div>
+                    <div class="hud-bracket top-3 right-3 border-t-2 border-r-2"></div>
+                    <div class="hud-bracket bottom-3 left-3 border-b-2 border-l-2"></div>
+                    <div class="hud-bracket bottom-3 right-3 border-b-2 border-r-2"></div>
+
+                    <!-- High-tech Top CCTV HUD Overlay -->
+                    <div class="absolute top-4 left-4 pointer-events-none flex items-center space-x-3 text-[11px] font-mono z-20">
+                        <span class="px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-red-500/40 text-red-400 font-bold flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                            <span>REC [24/7 LIVE]</span>
+                        </span>
+                        <span class="px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-gray-700 text-gray-300" id="cctv-live-ms">
+                            00:00:00.000
+                        </span>
+                    </div>
 
                     <!-- Live Stream Img -->
                     <img id="video-stream" src="/video_feed?source=footage" alt="SafeWatch Live Feed" class="w-full h-full object-contain">
 
                     <!-- Overlay Bottom Legend -->
-                    <div class="absolute bottom-4 left-4 bg-brand-base/90 backdrop-blur-md border border-brand-cardBorder px-3.5 py-1.5 rounded-lg flex items-center space-x-4 text-xs font-mono pointer-events-none">
+                    <div class="absolute bottom-4 left-4 bg-brand-surface/90 backdrop-blur-md border border-brand-cardBorder px-3.5 py-1.5 rounded-lg flex items-center space-x-4 text-xs font-mono pointer-events-none z-20">
                         <div class="flex items-center space-x-1.5">
-                            <span class="w-2.5 h-2.5 rounded bg-emerald-500"></span>
+                            <span class="w-2.5 h-2.5 rounded bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
                             <span class="text-gray-300">Compliant</span>
                         </div>
                         <div class="flex items-center space-x-1.5">
-                            <span class="w-2.5 h-2.5 rounded bg-red-500"></span>
+                            <span class="w-2.5 h-2.5 rounded bg-red-500 shadow-sm shadow-red-500/50"></span>
                             <span class="text-gray-300">Violation</span>
                         </div>
                         <div class="flex items-center space-x-1.5">
-                            <span class="w-2.5 h-2.5 rounded bg-cyan-400"></span>
-                            <span class="text-gray-300">Registered Worker Match</span>
+                            <span class="w-2.5 h-2.5 rounded bg-cyan-400 shadow-sm shadow-cyan-400/50"></span>
+                            <span class="text-gray-300">Registered Worker</span>
                         </div>
                     </div>
+
+                    <!-- Quick Floating Snapshot Button on Viewport -->
+                    <button onclick="captureLiveSnapshot()" title="Capture & Download Instant High-Res Live Snapshot" class="absolute bottom-4 right-4 z-20 px-3 py-1.5 bg-black/80 hover:bg-amber-500 hover:text-black text-amber-400 border border-amber-500/40 rounded-lg text-xs font-mono font-bold backdrop-blur-md transition flex items-center space-x-2 shadow-lg">
+                        <i class="fa-solid fa-camera"></i>
+                        <span>Capture Frame</span>
+                    </button>
                 </div>
 
                 <!-- Bottom Telemetry & Controls Toolbar -->
-                <div class="px-4 py-2.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between text-xs">
+                <div class="px-4 py-2.5 bg-brand-surface border-t border-brand-cardBorder flex items-center justify-between text-xs font-mono">
                     <div class="flex items-center space-x-2">
-                        <button onclick="switchChannel('footage')" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
+                        <button onclick="switchChannel('footage')" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 font-semibold transition flex items-center space-x-1.5">
                             <i class="fa-solid fa-industry text-amber-400"></i>
-                            <span>Site Footage Mode</span>
+                            <span>Site Footage</span>
                         </button>
-                        <button onclick="switchChannel('cam')" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
-                            <i class="fa-solid fa-camera text-blue-400"></i>
-                            <span>Live Laptop Cam</span>
+                        <button onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 font-semibold transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-camera text-cyan-400"></i>
+                            <span>Laptop Webcam</span>
                         </button>
-                        <button onclick="openAuditModal()" class="px-3 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 font-medium transition flex items-center space-x-1.5">
+                        <button onclick="openAuditModal()" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 font-semibold transition flex items-center space-x-1.5">
                             <i class="fa-solid fa-magnifying-glass-chart text-emerald-400"></i>
                             <span>Audit Still Photo</span>
                         </button>
                     </div>
 
-                    <div class="font-mono text-[11px] text-gray-400 flex items-center space-x-2">
-                        <span>ENGINE:</span>
-                        <span class="text-white font-semibold">YOLOX-S FP16 + SFACE</span>
+                    <div class="text-[11px] text-gray-400 flex items-center space-x-2">
+                        <span class="text-gray-500">INFERENCE ENGINE:</span>
+                        <span class="text-cyan-400 font-bold">YOLOX-S FP16 + SFACE 128-D</span>
                     </div>
                 </div>
             </div>
 
             <!-- Target 5-Class Legend -->
             <div class="glass-panel rounded-xl p-3 text-xs flex flex-wrap items-center justify-between gap-2 border-brand-cardBorder font-mono">
-                <span class="font-bold text-gray-300">SafeWatch AI 5-Class Target Protocol:</span>
+                <span class="font-bold text-gray-300 flex items-center space-x-2">
+                    <i class="fa-solid fa-microchip text-amber-500"></i>
+                    <span>Target Protocol:</span>
+                </span>
                 <div class="flex flex-wrap gap-2">
                     <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">0: Helmet</span>
                     <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30">1: No_helmet</span>
                     <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">2: Safety_shoes</span>
                     <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">3: No_SafetyShoes</span>
-                    <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">4: Person</span>
+                    <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">4: Person</span>
                 </div>
             </div>
         </div>
 
         <!-- Right Column: Violations Feed & Face Verification Log (4 Cols) -->
         <div class="lg:col-span-4 flex flex-col space-y-3.5">
-            <div class="glass-panel rounded-2xl flex flex-col h-[700px] shadow-2xl overflow-hidden border border-brand-cardBorder">
+            <div class="glass-panel glass-panel-glow rounded-2xl flex flex-col h-[700px] shadow-2xl overflow-hidden border border-brand-cardBorder">
                 
                 <!-- Section Header -->
-                <div class="p-3.5 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
-                    <div>
-                        <h2 class="font-bold text-sm text-white flex items-center space-x-2">
-                            <i class="fa-solid fa-bell text-amber-500"></i>
-                            <span>Violation Evidence & Identity Feed</span>
-                        </h2>
-                        <p class="text-[11px] text-gray-400 font-mono mt-0.5">Real-time snapshots & identity verification</p>
+                <div class="p-3.5 border-b border-brand-cardBorder bg-brand-surface space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="font-black text-sm text-white flex items-center space-x-2">
+                                <i class="fa-solid fa-bolt-lightning text-amber-500"></i>
+                                <span>Evidence & Incident Feed</span>
+                            </h2>
+                            <p class="text-[11px] text-gray-400 font-mono">Real-time biometric match & PPE violations</p>
+                        </div>
+
+                        <!-- Filter Tabs -->
+                        <div class="flex items-center space-x-1 bg-brand-card p-0.5 rounded-lg text-xs font-mono">
+                            <button onclick="setFilter('active')" id="tab-active" class="px-2.5 py-1 rounded-md font-bold bg-red-500 text-white shadow">Active</button>
+                            <button onclick="setFilter('all')" id="tab-all" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">All</button>
+                            <button onclick="setFilter('resolved')" id="tab-resolved" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">Resolved</button>
+                        </div>
                     </div>
 
-                    <!-- Filter Tabs -->
-                    <div class="flex items-center space-x-1 bg-brand-card p-0.5 rounded-lg text-xs font-mono">
-                        <button onclick="setFilter('active')" id="tab-active" class="px-2.5 py-1 rounded-md font-semibold bg-red-500 text-white shadow">Active</button>
-                        <button onclick="setFilter('all')" id="tab-all" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">All</button>
-                        <button onclick="setFilter('resolved')" id="tab-resolved" class="px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white">Resolved</button>
+                    <!-- Search Input Bar -->
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+                        <input type="text" id="incident-search" oninput="handleIncidentSearch(this.value)" placeholder="Search worker, violation tag, or ID..." class="w-full bg-brand-base border border-brand-cardBorder rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 font-mono transition">
                     </div>
                 </div>
 
@@ -321,12 +424,12 @@
                 <div id="violations-container" class="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scroll">
                     <div class="text-center py-24 text-gray-500 text-xs font-mono">
                         <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 text-amber-500"></i>
-                        <p>Syncing violations from SafeWatch engine...</p>
+                        <p>Syncing telemetry from SafeWatch engine...</p>
                     </div>
                 </div>
 
                 <!-- Footer Summary Bar -->
-                <div class="p-2.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between text-xs text-gray-400 font-mono">
+                <div class="p-2.5 bg-brand-surface border-t border-brand-cardBorder flex items-center justify-between text-xs text-gray-400 font-mono">
                     <span id="incident-status-summary">Active Violations: 0</span>
                     <button onclick="fetchViolations()" class="text-amber-400 hover:underline flex items-center space-x-1">
                         <i class="fa-solid fa-rotate-right"></i>
@@ -338,10 +441,218 @@
 
     </main>
 
+    <!-- Modal: Interactive Forensic Evidence Inspector (Deep Pan & Zoom) -->
+    <div id="snapshot-modal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl hidden flex items-center justify-center p-2 sm:p-4 select-none">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-6xl w-full h-[92vh] overflow-hidden shadow-2xl flex flex-col">
+            
+            <!-- Modal Header -->
+            <div class="px-5 py-3 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                        <i class="fa-solid fa-microscope text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="font-bold text-white text-sm" id="modal-worker-title">Forensic Evidence Inspection</h3>
+                            <span id="modal-status-badge" class="px-2 py-0.5 rounded-full font-mono text-[10px] font-extrabold uppercase bg-red-500/20 text-red-400 border border-red-500/30">
+                                CRITICAL VIOLATION
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-gray-400 font-mono" id="modal-timestamp">Recorded: --</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <!-- Mark as Resolved directly in Modal -->
+                    <button id="modal-resolve-btn" onclick="resolveCurrentModalViolation()" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-check"></i>
+                        <span id="modal-resolve-btn-text">Resolve Incident</span>
+                    </button>
+
+                    <!-- Print / Export Report -->
+                    <button onclick="printEvidenceReport()" title="Print Incident Report" class="px-3 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 text-xs font-mono transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-print"></i>
+                        <span class="hidden sm:inline">Print Report</span>
+                    </button>
+
+                    <!-- Close Modal -->
+                    <button onclick="closeSnapshotModal()" class="w-8 h-8 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-400 hover:text-white flex items-center justify-center transition">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body: Left 8/12 Interactive Deep-Zoom Canvas, Right 4/12 Forensic Dossier -->
+            <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+                
+                <!-- Left 8/12: Deep Zoom Stage -->
+                <div class="lg:col-span-8 flex flex-col bg-[#030509] border-b lg:border-b-0 lg:border-r border-brand-cardBorder relative overflow-hidden">
+                    
+                    <!-- Floating Inspection Controls Toolbar -->
+                    <div class="p-2.5 bg-brand-surface/90 backdrop-blur-md border-b border-brand-cardBorder flex flex-wrap items-center justify-between gap-2 z-20 text-xs font-mono">
+                        
+                        <!-- View Mode Tabs -->
+                        <div class="flex items-center space-x-1 bg-brand-base p-1 rounded-lg border border-brand-cardBorder">
+                            <button id="btn-view-scene" onclick="switchInspectorView('scene')" class="px-2.5 py-1 rounded font-semibold bg-amber-500 text-black">
+                                Full Scene
+                            </button>
+                            <button id="btn-view-face" onclick="switchInspectorView('face')" class="px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white">
+                                Face Biometric Crop
+                            </button>
+                            <button id="btn-view-dual" onclick="switchInspectorView('dual')" class="px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white">
+                                Split Dual-View
+                            </button>
+                        </div>
+
+                        <!-- Pan & Zoom Buttons -->
+                        <div class="flex items-center space-x-1.5">
+                            <button onclick="adjustZoom(-0.25)" title="Zoom Out (-)" class="w-7 h-7 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-gray-200">
+                                <i class="fa-solid fa-minus text-[10px]"></i>
+                            </button>
+
+                            <span id="zoom-level-badge" class="px-2.5 py-1 rounded bg-brand-base border border-brand-cardBorder text-amber-400 font-bold min-w-[55px] text-center">
+                                100%
+                            </span>
+
+                            <button onclick="adjustZoom(0.25)" title="Zoom In (+)" class="w-7 h-7 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-gray-200">
+                                <i class="fa-solid fa-plus text-[10px]"></i>
+                            </button>
+
+                            <!-- Presets -->
+                            <button onclick="setZoomScale(1.0)" title="100% Actual Scale" class="px-2 py-1 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 text-[11px]">
+                                1:1
+                            </button>
+                            <button onclick="setZoomScale(2.5)" title="250% Deep Detail Focus" class="px-2 py-1 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 text-[11px]">
+                                250%
+                            </button>
+                            <button onclick="setZoomScale(4.0)" title="400% Forensic Pixels" class="px-2 py-1 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 text-[11px]">
+                                400%
+                            </button>
+                            <button onclick="resetZoomAndPan()" title="Reset Zoom and Center" class="px-2.5 py-1 rounded bg-brand-subtle hover:bg-brand-cardBorder border border-brand-cardBorder text-amber-400 text-[11px] flex items-center space-x-1">
+                                <i class="fa-solid fa-compress text-[10px]"></i>
+                                <span>Fit</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Single Viewport (For Scene or Face mode) -->
+                    <div id="inspector-single-viewport" class="flex-1 zoom-stage-grid relative flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing">
+                        <div id="inspector-image-wrapper" class="transition-transform duration-75 ease-out select-none flex items-center justify-center">
+                            <img id="modal-snapshot-img" src="" alt="Forensic Evidence" class="max-h-[68vh] max-w-[90vw] object-contain shadow-2xl pointer-events-none rounded">
+                        </div>
+
+                        <!-- Mouse instruction helper pill -->
+                        <div class="absolute bottom-3 left-3 pointer-events-none px-2.5 py-1 rounded bg-black/80 border border-brand-cardBorder text-[10px] text-gray-400 font-mono flex items-center space-x-2">
+                            <i class="fa-solid fa-computer-mouse text-amber-500"></i>
+                            <span>Wheel to zoom • Drag to pan across image</span>
+                        </div>
+                    </div>
+
+                    <!-- Dual Split Viewport (Side-by-side comparison) -->
+                    <div id="inspector-dual-viewport" class="hidden flex-1 grid grid-cols-2 divide-x divide-brand-cardBorder bg-[#030509] overflow-hidden">
+                        <!-- Scene Left -->
+                        <div class="relative flex flex-col p-3 overflow-hidden">
+                            <div class="text-[10px] text-gray-400 font-mono mb-1.5 flex items-center space-x-1.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                <span>FULL SCENE EVIDENCE CONTEXT</span>
+                            </div>
+                            <div class="flex-1 flex items-center justify-center overflow-hidden rounded bg-black/50 border border-brand-cardBorder">
+                                <img id="dual-scene-img" src="" class="max-h-full max-w-full object-contain">
+                            </div>
+                        </div>
+                        <!-- Face Right -->
+                        <div class="relative flex flex-col p-3 overflow-hidden">
+                            <div class="text-[10px] text-cyan-400 font-mono mb-1.5 flex items-center space-x-1.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                                <span>ALIGNED FACIAL LANDMARK CROP</span>
+                            </div>
+                            <div class="flex-1 flex items-center justify-center overflow-hidden rounded bg-black/50 border border-brand-cardBorder">
+                                <img id="dual-face-img" src="" class="max-h-full max-w-full object-contain">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right 4/12: Forensic Dossier Panel -->
+                <div class="lg:col-span-4 bg-brand-surface p-5 overflow-y-auto custom-scroll flex flex-col justify-between space-y-5">
+                    
+                    <div class="space-y-5">
+                        <!-- Biometric Match Dossier Card -->
+                        <div class="p-4 rounded-xl bg-brand-base border border-brand-cardBorder space-y-3">
+                            <div class="flex items-center space-x-3.5">
+                                <div class="relative w-16 h-16 rounded-xl overflow-hidden bg-brand-card border-2 border-cyan-400/40 flex-shrink-0 shadow-lg shadow-cyan-500/10">
+                                    <img id="modal-dossier-face" src="" alt="Face Crop" class="w-full h-full object-cover">
+                                </div>
+                                <div class="flex-1 min-w-0 font-mono">
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded font-bold uppercase" id="modal-dossier-match-badge">
+                                        MATCH CONFIRMED
+                                    </span>
+                                    <h4 class="font-black text-base text-white mt-1 truncate" id="modal-dossier-name">--</h4>
+                                    <p class="text-[11px] text-gray-400" id="modal-dossier-empid">ID: --</p>
+                                </div>
+                            </div>
+
+                            <!-- Cosine Similarity Confidence Bar -->
+                            <div class="pt-1 font-mono">
+                                <div class="flex justify-between text-[11px] text-gray-300 mb-1">
+                                    <span>Biometric Cosine Similarity:</span>
+                                    <span class="text-cyan-400 font-bold" id="modal-dossier-score">0.0%</span>
+                                </div>
+                                <div class="w-full h-1.5 rounded-full bg-brand-card overflow-hidden">
+                                    <div id="modal-dossier-progress" class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full" style="width: 0%"></div>
+                                </div>
+                                <span class="text-[9px] text-gray-500 mt-0.5 block">SFace Threshold: 0.363 (OSHA Audited)</span>
+                            </div>
+                        </div>
+
+                        <!-- Detected Infractions Breakdown -->
+                        <div class="space-y-2 font-mono">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Detected Infractions:</h4>
+                            <div id="modal-missing-badges" class="flex flex-wrap gap-1.5">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Camera Telemetry -->
+                        <div class="p-3 rounded-xl bg-brand-base border border-brand-cardBorder space-y-2 text-xs font-mono">
+                            <h4 class="text-[11px] font-bold text-gray-400 uppercase">Audit Telemetry:</h4>
+                            <div class="flex justify-between text-gray-300">
+                                <span class="text-gray-500">Camera Node:</span>
+                                <span id="modal-dossier-cam" class="text-white font-semibold">--</span>
+                            </div>
+                            <div class="flex justify-between text-gray-300">
+                                <span class="text-gray-500">Classification:</span>
+                                <span class="text-amber-400 font-semibold">YOLOX Industrial PPE</span>
+                            </div>
+                            <div class="flex justify-between text-gray-300">
+                                <span class="text-gray-500">Resolution Standard:</span>
+                                <span class="text-emerald-400 font-semibold">Pristine 98% JPEG</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Downloads & External Actions -->
+                    <div class="space-y-2 pt-3 border-t border-brand-cardBorder font-mono text-xs">
+                        <a id="modal-download-btn" href="" download class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-black font-extrabold flex items-center justify-center space-x-2 transition shadow-md shadow-amber-500/20">
+                            <i class="fa-solid fa-download"></i>
+                            <span>Download Full Evidence Frame</span>
+                        </a>
+
+                        <a id="modal-download-face-btn" href="" download class="w-full py-2 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 font-semibold flex items-center justify-center space-x-2 transition">
+                            <i class="fa-solid fa-user-tag text-cyan-400"></i>
+                            <span>Download Face Crop Only</span>
+                        </a>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Upload Industrial Site Video -->
     <div id="footage-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
         <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
                 <div class="flex items-center space-x-2">
                     <i class="fa-solid fa-file-video text-amber-500 text-lg"></i>
                     <div>
@@ -375,13 +686,13 @@
     <!-- Modal: Registered Workers Directory -->
     <div id="personnel-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
         <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
                 <div class="flex items-center space-x-2.5">
                     <div class="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
                         <i class="fa-solid fa-users text-lg"></i>
                     </div>
                     <div>
-                        <h3 class="font-bold text-white text-sm">Registered Workers Directory (<span id="directory-worker-count">0</span>)</h3>
+                        <h3 class="font-bold text-white text-sm">Registered Personnel Directory (<span id="directory-worker-count">0</span>)</h3>
                         <p class="text-[11px] text-gray-400 font-mono">SFace 128-d Biometric Verification Database</p>
                     </div>
                 </div>
@@ -390,11 +701,12 @@
                 </button>
             </div>
 
+            <!-- Modal Sub-bar with Quick Add -->
             <div class="px-5 py-2.5 bg-brand-card/60 border-b border-brand-cardBorder flex items-center justify-between">
-                <span class="text-xs text-gray-400 font-mono">All registered workers are automatically verified on camera.</span>
+                <span class="text-xs text-gray-400 font-mono">Recognized workers are verified on camera automatically.</span>
                 <button onclick="closePersonnelModal(); openEnrollModal();" class="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg text-xs font-mono shadow flex items-center space-x-1.5 transition">
-                    <i class="fa-solid fa-user-plus text-[10px]"></i>
-                    <span>+ Register New</span>
+                    <i class="fa-solid fa-plus text-[10px]"></i>
+                    <span>Register New Worker</span>
                 </button>
             </div>
 
@@ -402,7 +714,7 @@
                 <!-- Dynamically populated via JS -->
             </div>
 
-            <div class="p-3.5 border-t border-brand-cardBorder bg-brand-base flex justify-end">
+            <div class="p-3.5 border-t border-brand-cardBorder bg-brand-surface flex justify-end">
                 <button onclick="closePersonnelModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg text-xs font-mono">Close</button>
             </div>
         </div>
@@ -411,7 +723,7 @@
     <!-- Modal: Register Worker Face (Any Worker) -->
     <div id="enroll-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
         <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
                 <div class="flex items-center space-x-2.5">
                     <div class="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
                         <i class="fa-solid fa-user-plus text-lg"></i>
@@ -461,38 +773,10 @@
         </div>
     </div>
 
-    <!-- Modal: Evidence Snapshot Lightbox -->
-    <div id="snapshot-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
-        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-3.5 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
-                <div>
-                    <h3 class="font-bold text-white text-sm flex items-center space-x-2">
-                        <i class="fa-solid fa-camera-retro text-amber-500"></i>
-                        <span id="modal-worker-title">Violation Evidence</span>
-                    </h3>
-                    <p class="text-[11px] text-gray-400 font-mono" id="modal-timestamp">Recorded: --</p>
-                </div>
-                <button onclick="closeSnapshotModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-            <div class="p-4 bg-black flex items-center justify-center max-h-[70vh] overflow-hidden">
-                <img id="modal-snapshot-img" src="" alt="Violation Snapshot" class="max-h-[65vh] w-auto object-contain rounded-lg">
-            </div>
-            <div class="p-3.5 bg-brand-base border-t border-brand-cardBorder flex items-center justify-between">
-                <div class="flex items-center space-x-2" id="modal-missing-badges"></div>
-                <a id="modal-download-btn" href="" download class="px-4 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardBorder text-xs font-semibold text-white font-mono flex items-center space-x-2 transition">
-                    <i class="fa-solid fa-download text-amber-400"></i>
-                    <span>Download Evidence</span>
-                </a>
-            </div>
-        </div>
-    </div>
-
     <!-- Modal: Still Photo Audit -->
     <div id="audit-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
         <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-base">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
                 <h3 class="font-bold text-white text-sm flex items-center space-x-2 font-mono">
                     <i class="fa-solid fa-magnifying-glass-chart text-amber-500"></i>
                     <span>Still Photo PPE & Face Audit</span>
@@ -519,47 +803,215 @@
         </div>
     </div>
 
+    <!-- Floating Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
     <!-- Frontend Scripting -->
     <script>
         let currentFilter = 'active';
         let currentChannel = 'footage';
         let currentVideoFile = '';
         let violationsCache = [];
+        let searchQuery = '';
         let selectedFootageFile = null;
+        let audioAlarmEnabled = localStorage.getItem('safewatch_audio_enabled') !== 'false';
+        let lastKnownViolationCount = 0;
+
+        // Current Inspector State
+        let inspectorState = {
+            id: null,
+            sceneUrl: '',
+            faceUrl: '',
+            workerName: '',
+            timestamp: '',
+            missingPpe: '',
+            cameraId: '',
+            confidence: 0,
+            resolved: 0,
+            activeView: 'scene', // 'scene', 'face', 'dual'
+            zoom: 1.0,
+            panX: 0,
+            panY: 0,
+            isDragging: false,
+            startX: 0,
+            startY: 0
+        };
 
         // Live Clock
         function updateClock() {
             const now = new Date();
             const timeStr = now.toLocaleTimeString('en-IN', { hour12: false }) + ' IST';
             document.getElementById('live-clock').innerText = timeStr;
+
+            // Millisecond timecode on CCTV HUD
+            const ms = String(now.getMilliseconds()).padStart(3, '0');
+            const cctvTime = now.toTimeString().split(' ')[0] + '.' + ms;
+            const cctvEl = document.getElementById('cctv-live-ms');
+            if (cctvEl) cctvEl.innerText = cctvTime;
         }
-        setInterval(updateClock, 1000);
+        setInterval(updateClock, 100);
         updateClock();
+
+        // Audio Alarm System (Web Audio API Synthesizer)
+        let audioCtx = null;
+        function playRadarChime() {
+            if (!audioAlarmEnabled) return;
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.type = 'sine';
+                const now = audioCtx.currentTime;
+                // Futuristic double radar blip
+                osc.frequency.setValueAtTime(520, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } catch (e) {
+                console.warn("Audio chime failed:", e);
+            }
+        }
+
+        function toggleAudioChime() {
+            audioAlarmEnabled = !audioAlarmEnabled;
+            localStorage.setItem('safewatch_audio_enabled', audioAlarmEnabled);
+            updateAudioButtonUI();
+            showToast(
+                audioAlarmEnabled ? "Audio Alarm Enabled" : "Audio Alarm Muted",
+                audioAlarmEnabled ? "Radar chimes will alert on new safety violations." : "Violation sound alerts are silenced.",
+                audioAlarmEnabled ? "success" : "info"
+            );
+        }
+
+        function updateAudioButtonUI() {
+            const btn = document.getElementById('btn-audio-toggle');
+            const icon = document.getElementById('audio-toggle-icon');
+            if (!btn || !icon) return;
+            if (audioAlarmEnabled) {
+                btn.className = "w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 flex items-center justify-center text-amber-400 transition";
+                icon.className = "fa-solid fa-volume-high text-xs";
+            } else {
+                btn.className = "w-8 h-8 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-gray-500 transition";
+                icon.className = "fa-solid fa-volume-xmark text-xs";
+            }
+        }
+        updateAudioButtonUI();
+
+        // Fullscreen Dashboard Toggle
+        function toggleDashboardFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    alert(`Error attempting to enable full-screen mode: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        // Live Frame Capture from CCTV Viewport
+        function captureLiveSnapshot() {
+            const videoImg = document.getElementById('video-stream');
+            if (!videoImg) return;
+
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = videoImg.naturalWidth || 1280;
+                canvas.height = videoImg.naturalHeight || 720;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(videoImg, 0, 0, canvas.width, canvas.height);
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                const a = document.createElement('a');
+                const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                a.href = dataUrl;
+                a.download = `safewatch_live_snap_${ts}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                showToast("Snapshot Captured", "High-res CCTV frame downloaded to your device.", "success");
+            } catch (err) {
+                // If tainted canvas due to cross-origin stream, open in new tab
+                window.open(videoImg.src, '_blank');
+                showToast("Snapshot Exported", "Opened snapshot stream in new tab.", "info");
+            }
+        }
+
+        // Toast Notification System
+        function showToast(title, message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const toast = document.createElement('div');
+            const borderColors = {
+                success: 'border-emerald-500/40 text-emerald-400',
+                danger: 'border-red-500/40 text-red-400',
+                info: 'border-cyan-500/40 text-cyan-400'
+            };
+            const icons = {
+                success: 'fa-circle-check',
+                danger: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+
+            toast.className = `p-3.5 rounded-xl bg-brand-surface/95 backdrop-blur-md border ${borderColors[type] || borderColors.info} shadow-2xl flex items-start space-x-3 pointer-events-auto transition-all duration-300 transform translate-y-3 opacity-0 max-w-sm font-mono text-xs`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icons[type] || icons.info} text-base mt-0.5"></i>
+                <div class="flex-1">
+                    <h5 class="font-bold text-white">${title}</h5>
+                    <p class="text-gray-400 text-[11px] mt-0.5">${message}</p>
+                </div>
+            `;
+
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.remove('translate-y-3', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-x-4');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
 
         // Switch channel between 'footage' and 'cam'
         function switchChannel(channel) {
             currentChannel = channel;
+            const streamImg = document.getElementById('video-stream');
             const btnFootage = document.getElementById('btn-chan-footage');
             const btnCam = document.getElementById('btn-chan-cam');
-            const chanName = document.getElementById('active-channel-name');
-            const img = document.getElementById('video-stream');
+            const channelTitle = document.getElementById('active-channel-name');
 
             if (channel === 'footage') {
-                btnFootage.className = 'px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition';
-                btnCam.className = 'px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
-                chanName.innerText = 'CHANNEL 1: INDUSTRIAL SITE CCTV';
-                const videoParam = currentVideoFile ? `&video=${encodeURIComponent(currentVideoFile)}` : '';
-                img.src = `/video_feed?source=footage${videoParam}&t=${Date.now()}`;
+                btnFootage.className = 'px-3 py-1 rounded-lg font-mono font-semibold bg-amber-500 text-black shadow flex items-center space-x-1.5 transition';
+                btnCam.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                channelTitle.innerHTML = '<i class="fa-solid fa-video text-cyan-400 text-[11px]"></i><span>CHANNEL 1: INDUSTRIAL SITE CCTV</span>';
+                const fileParam = currentVideoFile ? `&video=${encodeURIComponent(currentVideoFile)}` : '';
+                streamImg.src = `/video_feed?source=footage${fileParam}&t=${Date.now()}`;
             } else {
-                btnCam.className = 'px-3 py-1 rounded-lg font-medium bg-amber-500 text-black font-semibold shadow flex items-center space-x-1.5 transition';
-                btnFootage.className = 'px-3 py-1 rounded-lg font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
-                chanName.innerText = 'CHANNEL 2: LAPTOP WEBCAM LIVE FEED';
-                img.src = `/video_feed?source=cam&t=${Date.now()}`;
+                btnCam.className = 'px-3 py-1 rounded-lg font-mono font-semibold bg-cyan-400 text-black shadow flex items-center space-x-1.5 transition';
+                btnFootage.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                channelTitle.innerHTML = '<i class="fa-solid fa-camera text-amber-400 text-[11px]"></i><span>CHANNEL 2: LIVE LAPTOP WEBCAM</span>';
+                streamImg.src = `/video_feed?source=cam&t=${Date.now()}`;
             }
         }
 
         function refreshStream() {
             switchChannel(currentChannel);
+            showToast("Stream Reconnected", `Reloaded ${currentChannel} ingest pipeline.`, "info");
         }
 
         function changeVideoFile(val) {
@@ -603,7 +1055,7 @@
                     document.getElementById('hud-active').innerText = stats.active_violations;
                     document.getElementById('hud-total').innerText = stats.total_incidents;
                     document.getElementById('hud-resolved').innerText = stats.resolved_incidents;
-                    document.getElementById('incident-status-summary').innerText = `Active Violations: ${stats.active_violations}`;
+                    document.getElementById('incident-status-summary').innerText = `Active Incidents: ${stats.active_violations}`;
                 }
 
                 if (telemRes.ok) {
@@ -627,7 +1079,7 @@
             ['active', 'all', 'resolved'].forEach(f => {
                 const btn = document.getElementById(`tab-${f}`);
                 if (f === filter) {
-                    btn.className = `px-2.5 py-1 rounded-md font-semibold ${f === 'active' ? 'bg-red-500 text-white' : 'bg-amber-500 text-black'} shadow font-mono text-xs`;
+                    btn.className = `px-2.5 py-1 rounded-md font-bold ${f === 'active' ? 'bg-red-500 text-white' : 'bg-amber-500 text-black'} shadow font-mono text-xs`;
                 } else {
                     btn.className = 'px-2.5 py-1 rounded-md font-medium text-gray-400 hover:text-white font-mono text-xs';
                 }
@@ -635,12 +1087,27 @@
             renderViolations();
         }
 
+        // Search in Incident Feed
+        function handleIncidentSearch(query) {
+            searchQuery = query.toLowerCase().trim();
+            renderViolations();
+        }
+
         // Fetch Violations
         async function fetchViolations() {
             try {
-                const res = await fetch('/api/violations?limit=50');
+                const res = await fetch('/api/violations?limit=60');
                 if (!res.ok) return;
-                violationsCache = await res.json();
+                const newViolations = await res.json();
+                
+                // Check if a new active violation arrived to trigger radar chime
+                const currentActiveCount = newViolations.filter(v => v.resolved === 0).length;
+                if (lastKnownViolationCount > 0 && currentActiveCount > lastKnownViolationCount) {
+                    playRadarChime();
+                }
+                lastKnownViolationCount = currentActiveCount;
+
+                violationsCache = newViolations;
                 renderViolations();
             } catch (err) {
                 console.error("Fetch violations error:", err);
@@ -651,18 +1118,30 @@
         function renderViolations() {
             const container = document.getElementById('violations-container');
             let filtered = violationsCache;
+            
+            // Filter by active/resolved tab
             if (currentFilter === 'active') {
                 filtered = violationsCache.filter(v => v.resolved === 0);
             } else if (currentFilter === 'resolved') {
                 filtered = violationsCache.filter(v => v.resolved === 1);
             }
 
+            // Filter by search query
+            if (searchQuery) {
+                filtered = filtered.filter(v => 
+                    v.worker_name.toLowerCase().includes(searchQuery) ||
+                    v.missing_ppe.toLowerCase().includes(searchQuery) ||
+                    String(v.id).includes(searchQuery) ||
+                    (v.camera_id && v.camera_id.toLowerCase().includes(searchQuery))
+                );
+            }
+
             if (filtered.length === 0) {
                 container.innerHTML = `
                     <div class="text-center py-24 text-gray-500 text-xs font-mono">
                         <i class="fa-solid fa-shield-halved text-3xl mb-2 text-emerald-500/40"></i>
-                        <p class="text-gray-400 font-semibold">NO ${currentFilter.toUpperCase()} VIOLATIONS DETECTED</p>
-                        <p class="text-gray-600 mt-1">PPE Compliance verified in monitored site zone.</p>
+                        <p class="text-gray-300 font-semibold">NO ${currentFilter.toUpperCase()} INCIDENTS DETECTED</p>
+                        <p class="text-gray-500 mt-1">${searchQuery ? 'No match for search filter.' : 'Continuous monitoring active.'}</p>
                     </div>
                 `;
                 return;
@@ -679,11 +1158,11 @@
                 const timeStr = new Date(v.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
                 return `
-                    <div class="p-3 rounded-xl border ${isResolved ? 'bg-brand-base/60 border-brand-cardBorder opacity-70' : 'bg-brand-card/90 border-red-500/40 hover:border-red-500'} transition duration-200 flex flex-col space-y-2.5">
+                    <div class="p-3.5 rounded-xl border ${isResolved ? 'bg-brand-surface/70 border-brand-cardBorder opacity-75' : 'bg-brand-card/95 border-red-500/40 hover:border-red-500 hover:shadow-lg hover:shadow-red-500/10'} transition duration-200 flex flex-col space-y-2.5">
                         <div class="flex items-start justify-between">
                             <div class="flex items-center space-x-3">
-                                <!-- Cropped Face Thumbnail -->
-                                <div class="relative w-12 h-12 rounded-lg overflow-hidden bg-black border ${isTargetMatch ? 'border-cyan-400 ring-2 ring-cyan-500/30' : (isResolved ? 'border-gray-700' : 'border-red-500')} flex-shrink-0">
+                                <!-- Cropped Face Thumbnail with Quick Preview -->
+                                <div class="relative w-12 h-12 rounded-lg overflow-hidden bg-black border ${isTargetMatch ? 'border-cyan-400 ring-2 ring-cyan-500/30' : (isResolved ? 'border-gray-700' : 'border-red-500')} flex-shrink-0 cursor-pointer" onclick="openSnapshotInspector(${JSON.stringify(v).replace(/"/g, '&quot;')})">
                                     ${faceCropUrl ? 
                                         `<img src="${faceCropUrl}" alt="${v.worker_name}" class="w-full h-full object-cover">` : 
                                         `<div class="w-full h-full flex items-center justify-center text-gray-600"><i class="fa-solid fa-user text-lg"></i></div>`
@@ -694,7 +1173,7 @@
                                 <div>
                                     <div class="flex items-center space-x-2">
                                         <h4 class="font-bold text-xs ${isTargetMatch ? 'text-cyan-400 font-mono' : (isResolved ? 'text-gray-400' : 'text-white')}">${v.worker_name}</h4>
-                                        ${isTargetMatch ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">VERIFIED MATCH</span>` : ''}
+                                        ${isTargetMatch ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">MATCH</span>` : ''}
                                         ${isUnknown ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-mono bg-brand-subtle text-gray-400">UNREGISTERED</span>` : ''}
                                     </div>
                                     <p class="text-[10px] text-gray-400 font-mono mt-0.5"><i class="fa-solid fa-video text-[9px] mr-1 text-amber-500"></i>${v.camera_id} • <span>${timeStr}</span></p>
@@ -702,7 +1181,7 @@
                             </div>
 
                             <span class="text-[9px] px-2 py-0.5 rounded-full font-mono font-bold uppercase ${isResolved ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/30 animate-pulse'}">
-                                ${isResolved ? 'Resolved' : 'Violation'}
+                                ${isResolved ? 'Resolved' : 'Critical'}
                             </span>
                         </div>
 
@@ -716,12 +1195,12 @@
                             `).join('')}
                         </div>
 
-                        <!-- Footer Actions: Snapshot Lightbox & Resolve -->
+                        <!-- Footer Actions: Deep Zoom Inspection Lightbox & Resolve -->
                         <div class="flex items-center justify-between pt-1.5 border-t border-brand-cardBorder/60 text-xs font-mono">
                             ${snapUrl ? `
-                                <button onclick="openSnapshotModal('${snapUrl}', '${v.worker_name}', '${v.timestamp}', '${v.missing_ppe}')" class="text-amber-400 hover:text-amber-300 flex items-center space-x-1 text-[11px]">
-                                    <i class="fa-regular fa-image"></i>
-                                    <span>Evidence Snapshot</span>
+                                <button onclick="openSnapshotInspector(${JSON.stringify(v).replace(/"/g, '&quot;')})" class="text-amber-400 hover:text-amber-300 flex items-center space-x-1.5 text-[11px] font-semibold transition">
+                                    <i class="fa-solid fa-magnifying-glass-plus text-amber-400"></i>
+                                    <span>Inspect & Deep Zoom</span>
                                 </button>
                             ` : `<span class="text-gray-600 text-[10px]">No Snapshot</span>`}
 
@@ -746,6 +1225,7 @@
             try {
                 const res = await fetch(`/api/resolve/${id}`, { method: 'POST' });
                 if (res.ok) {
+                    showToast("Incident Resolved", `Incident #${id} has been marked as verified and resolved.`, "success");
                     await fetchViolations();
                     await fetchTelemetryAndStats();
                 }
@@ -754,20 +1234,95 @@
             }
         }
 
-        // Snapshot Modal Lightbox
-        function openSnapshotModal(imgUrl, workerName, timestamp, missingPpe) {
-            document.getElementById('modal-snapshot-img').src = imgUrl;
-            document.getElementById('modal-download-btn').href = imgUrl;
-            document.getElementById('modal-worker-title').innerText = `Incident Evidence: ${workerName}`;
-            document.getElementById('modal-timestamp').innerText = `Recorded: ${new Date(timestamp).toLocaleString()}`;
+        // =========================================================================
+        // FORENSIC EVIDENCE INSPECTOR (INTERACTIVE PAN & ZOOM SUITE)
+        // =========================================================================
+        function openSnapshotInspector(v) {
+            inspectorState.id = v.id;
+            inspectorState.sceneUrl = v.snapshot_file ? `/snapshots/${v.snapshot_file}` : '';
+            inspectorState.faceUrl = v.face_crop_file ? `/snapshots/${v.face_crop_file}` : '';
+            inspectorState.workerName = v.worker_name;
+            inspectorState.timestamp = v.timestamp;
+            inspectorState.missingPpe = v.missing_ppe;
+            inspectorState.cameraId = v.camera_id;
+            inspectorState.confidence = v.confidence || 0.0;
+            inspectorState.resolved = v.resolved || 0;
+            inspectorState.activeView = 'scene';
+
+            // Populate Modal Headers
+            document.getElementById('modal-worker-title').innerText = `Incident #${v.id} // ${v.worker_name}`;
+            document.getElementById('modal-timestamp').innerText = `Recorded: ${new Date(v.timestamp).toLocaleString()} • ${v.camera_id}`;
             
+            // Status Badge
+            const statusBadge = document.getElementById('modal-status-badge');
+            if (v.resolved === 1) {
+                statusBadge.className = 'px-2 py-0.5 rounded-full font-mono text-[10px] font-extrabold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+                statusBadge.innerText = 'RESOLVED & AUDITED';
+            } else {
+                statusBadge.className = 'px-2 py-0.5 rounded-full font-mono text-[10px] font-extrabold uppercase bg-red-500/20 text-red-400 border border-red-500/30';
+                statusBadge.innerText = 'CRITICAL VIOLATION';
+            }
+
+            // Resolve button in modal
+            const resolveBtn = document.getElementById('modal-resolve-btn');
+            const resolveBtnText = document.getElementById('modal-resolve-btn-text');
+            if (v.resolved === 1) {
+                resolveBtn.disabled = true;
+                resolveBtn.className = 'px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold opacity-60 cursor-not-allowed';
+                resolveBtnText.innerText = 'Incident Cleared';
+            } else {
+                resolveBtn.disabled = false;
+                resolveBtn.className = 'px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold transition flex items-center space-x-1.5 cursor-pointer';
+                resolveBtnText.innerText = 'Resolve Incident';
+            }
+
+            // Dossier Card
+            document.getElementById('modal-dossier-name').innerText = v.worker_name;
+            document.getElementById('modal-dossier-cam').innerText = v.camera_id;
+            const isTarget = !v.worker_name.toLowerCase().includes('unidentified') && !v.worker_name.toLowerCase().includes('unknown');
+            const matchBadge = document.getElementById('modal-dossier-match-badge');
+            if (isTarget) {
+                matchBadge.className = 'text-[10px] px-1.5 py-0.2 rounded font-bold uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-500/30';
+                matchBadge.innerText = 'REGISTERED WORKER MATCH';
+            } else {
+                matchBadge.className = 'text-[10px] px-1.5 py-0.2 rounded font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30';
+                matchBadge.innerText = 'UNREGISTERED INTRUDER';
+            }
+
+            // Confidence Score
+            const confPct = Math.round((v.confidence || 0) * 100);
+            document.getElementById('modal-dossier-score').innerText = `${confPct}% SFace Cosine`;
+            document.getElementById('modal-dossier-progress').style.width = `${Math.min(100, Math.max(5, confPct))}%`;
+            document.getElementById('modal-dossier-face').src = inspectorState.faceUrl || inspectorState.sceneUrl;
+
+            // Missing PPE Tags
             const badgesContainer = document.getElementById('modal-missing-badges');
-            badgesContainer.innerHTML = missingPpe.split(',').map(m => `
-                <span class="px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-mono font-semibold">
-                    ${m.trim()}
+            badgesContainer.innerHTML = v.missing_ppe.split(',').map(m => `
+                <span class="px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-mono font-bold flex items-center space-x-1.5">
+                    <i class="fa-solid ${m.includes('Helmet') ? 'fa-hard-hat' : 'fa-shoe-prints'}"></i>
+                    <span>${m.trim()}</span>
                 </span>
             `).join('');
 
+            // Download Links
+            document.getElementById('modal-download-btn').href = inspectorState.sceneUrl;
+            document.getElementById('modal-download-face-btn').href = inspectorState.faceUrl || inspectorState.sceneUrl;
+
+            // Reset zoom and pan
+            resetZoomAndPan();
+
+            // Set main image
+            const mainImg = document.getElementById('modal-snapshot-img');
+            mainImg.src = inspectorState.sceneUrl;
+
+            // Dual view images
+            document.getElementById('dual-scene-img').src = inspectorState.sceneUrl;
+            document.getElementById('dual-face-img').src = inspectorState.faceUrl || inspectorState.sceneUrl;
+
+            // Switch to scene view by default
+            switchInspectorView('scene');
+
+            // Open Modal
             document.getElementById('snapshot-modal').classList.remove('hidden');
         }
 
@@ -775,7 +1330,132 @@
             document.getElementById('snapshot-modal').classList.add('hidden');
         }
 
-        // Footage Upload Modal
+        async function resolveCurrentModalViolation() {
+            if (!inspectorState.id) return;
+            await resolveViolation(inspectorState.id);
+            inspectorState.resolved = 1;
+            
+            const statusBadge = document.getElementById('modal-status-badge');
+            statusBadge.className = 'px-2 py-0.5 rounded-full font-mono text-[10px] font-extrabold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+            statusBadge.innerText = 'RESOLVED & AUDITED';
+
+            const resolveBtn = document.getElementById('modal-resolve-btn');
+            const resolveBtnText = document.getElementById('modal-resolve-btn-text');
+            resolveBtn.disabled = true;
+            resolveBtn.className = 'px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold opacity-60 cursor-not-allowed';
+            resolveBtnText.innerText = 'Incident Cleared';
+        }
+
+        function switchInspectorView(viewMode) {
+            inspectorState.activeView = viewMode;
+            const singleViewport = document.getElementById('inspector-single-viewport');
+            const dualViewport = document.getElementById('inspector-dual-viewport');
+            const mainImg = document.getElementById('modal-snapshot-img');
+
+            const btnScene = document.getElementById('btn-view-scene');
+            const btnFace = document.getElementById('btn-view-face');
+            const btnDual = document.getElementById('btn-view-dual');
+
+            [btnScene, btnFace, btnDual].forEach(b => b.className = 'px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white');
+
+            if (viewMode === 'scene') {
+                btnScene.className = 'px-2.5 py-1 rounded font-semibold bg-amber-500 text-black';
+                singleViewport.classList.remove('hidden');
+                dualViewport.classList.add('hidden');
+                mainImg.src = inspectorState.sceneUrl;
+                resetZoomAndPan();
+            } else if (viewMode === 'face') {
+                btnFace.className = 'px-2.5 py-1 rounded font-semibold bg-cyan-400 text-black';
+                singleViewport.classList.remove('hidden');
+                dualViewport.classList.add('hidden');
+                mainImg.src = inspectorState.faceUrl || inspectorState.sceneUrl;
+                resetZoomAndPan();
+            } else if (viewMode === 'dual') {
+                btnDual.className = 'px-2.5 py-1 rounded font-semibold bg-amber-500 text-black';
+                singleViewport.classList.add('hidden');
+                dualViewport.classList.remove('hidden');
+            }
+        }
+
+        // Pan & Zoom Mechanics
+        function applyZoomTransform() {
+            const wrapper = document.getElementById('inspector-image-wrapper');
+            const badge = document.getElementById('zoom-level-badge');
+            if (!wrapper) return;
+            wrapper.style.transform = `translate(${inspectorState.panX}px, ${inspectorState.panY}px) scale(${inspectorState.zoom})`;
+            if (badge) {
+                badge.innerText = `${Math.round(inspectorState.zoom * 100)}%`;
+            }
+        }
+
+        function adjustZoom(delta) {
+            setZoomScale(inspectorState.zoom + delta);
+        }
+
+        function setZoomScale(scale) {
+            inspectorState.zoom = Math.min(8.0, Math.max(0.4, scale));
+            applyZoomTransform();
+        }
+
+        function resetZoomAndPan() {
+            inspectorState.zoom = 1.0;
+            inspectorState.panX = 0;
+            inspectorState.panY = 0;
+            applyZoomTransform();
+        }
+
+        // Initialize Pan & Zoom Mouse Listeners
+        const zoomViewport = document.getElementById('inspector-single-viewport');
+        if (zoomViewport) {
+            // Mouse Wheel Zoom centered
+            zoomViewport.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+                setZoomScale(inspectorState.zoom * zoomFactor);
+            }, { passive: false });
+
+            // Mouse Drag to Pan
+            zoomViewport.addEventListener('mousedown', (e) => {
+                inspectorState.isDragging = true;
+                inspectorState.startX = e.clientX - inspectorState.panX;
+                inspectorState.startY = e.clientY - inspectorState.panY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!inspectorState.isDragging) return;
+                inspectorState.panX = e.clientX - inspectorState.startX;
+                inspectorState.panY = e.clientY - inspectorState.startY;
+                applyZoomTransform();
+            });
+
+            window.addEventListener('mouseup', () => {
+                inspectorState.isDragging = false;
+            });
+        }
+
+        // Print Incident Evidence Report
+        function printEvidenceReport() {
+            window.print();
+        }
+
+        // Keyboard Shortcut: Esc to close modal, +/- to zoom
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeSnapshotModal();
+                closePersonnelModal();
+                closeEnrollModal();
+                closeFootageModal();
+                closeAuditModal();
+            } else if (!document.getElementById('snapshot-modal').classList.contains('hidden')) {
+                if (e.key === '+' || e.key === '=') adjustZoom(0.25);
+                if (e.key === '-' || e.key === '_') adjustZoom(-0.25);
+                if (e.key === '0') resetZoomAndPan();
+            }
+        });
+
+        // =========================================================================
+        // FOOTAGE & PERSONNEL MANAGEMENT
+        // =========================================================================
         function openFootageModal() {
             document.getElementById('footage-modal').classList.remove('hidden');
             document.getElementById('footage-upload-status').classList.add('hidden');
@@ -791,7 +1471,7 @@
                 selectedFootageFile = e.target.files[0];
                 const status = document.getElementById('footage-upload-status');
                 status.classList.remove('hidden');
-                status.className = 'text-xs p-3 rounded-lg font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20';
+                status.className = 'text-xs p-3 rounded-lg font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20';
                 status.innerText = `Selected file: ${selectedFootageFile.name} (${Math.round(selectedFootageFile.size / 1024 / 1024)} MB)`;
             }
         }
@@ -805,7 +1485,7 @@
             const btn = document.getElementById('footage-upload-btn');
             const status = document.getElementById('footage-upload-status');
             btn.disabled = true;
-            btn.innerText = 'Uploading Video...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Uploading Video...';
 
             const formData = new FormData();
             formData.append('file', selectedFootageFile);
@@ -819,6 +1499,7 @@
                 if (res.ok && data.success) {
                     status.className = 'text-xs p-3 rounded-lg font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
                     status.innerText = data.message;
+                    showToast("Footage Uploaded", `Site footage ${selectedFootageFile.name} loaded to Channel 1.`, "success");
                     await fetchFootages();
                     switchChannel('footage');
                     setTimeout(() => {
@@ -896,12 +1577,12 @@
                             <div class="w-14 h-14 rounded-lg overflow-hidden bg-brand-card border border-brand-cardBorder flex items-center justify-center flex-shrink-0 relative">
                                 <img src="/known_faces/${w.filename}?t=${Date.now()}" class="w-full h-full object-cover" alt="${w.name}">
                             </div>
-                            <div class="flex-1 min-w-0">
+                            <div class="flex-1 min-w-0 font-mono">
                                 <div class="flex items-center space-x-2">
-                                    <h4 class="font-bold text-sm text-white font-mono truncate">${w.name}</h4>
-                                    <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+                                    <h4 class="font-bold text-sm text-white truncate">${w.name}</h4>
+                                    <span class="text-[10px] px-2 py-0.5 rounded font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
                                 </div>
-                                <p class="text-[11px] text-gray-400 font-mono mt-0.5 truncate">File: ${w.filename} | 128-d Vector</p>
+                                <p class="text-[11px] text-gray-400 mt-0.5 truncate">File: ${w.filename} • SFace 128-D Vector</p>
                             </div>
                             <div class="flex items-center space-x-2">
                                 <button onclick="deleteWorker('${w.filename}', '${w.name}')" title="Delete Worker" class="px-2.5 py-1.5 rounded-lg bg-brand-card hover:bg-red-500/20 hover:text-red-400 text-gray-400 text-xs font-mono transition border border-brand-cardBorder hover:border-red-500/30 flex items-center space-x-1">
@@ -925,6 +1606,7 @@
                 const res = await fetch(`/api/workers/delete/${encodeURIComponent(filename)}`, { method: 'POST' });
                 const data = await res.json();
                 if (res.ok && data.success) {
+                    showToast("Worker Removed", `Removed ${name || filename} from biometric database.`, "info");
                     await loadPersonnelDirectory();
                     await fetchTelemetryAndStats();
                 } else {
@@ -989,6 +1671,7 @@
                 if (res.ok && data.success) {
                     statusDiv.className = 'text-xs p-3 rounded-lg font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
                     statusDiv.innerHTML = `<i class="fa-solid fa-circle-check mr-1.5"></i> ${data.message}`;
+                    showToast("Worker Registered", `Successfully enrolled ${name} into biometric database.`, "success");
                     await fetchTelemetryAndStats();
                     setTimeout(() => {
                         closeEnrollModal();
@@ -1031,7 +1714,7 @@
             }
 
             btn.disabled = true;
-            btn.innerText = 'Analyzing PPE & Faces...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Analyzing PPE & Faces...';
 
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
@@ -1049,6 +1732,7 @@
                         <strong>Summary:</strong> Persons: ${data.summary.persons_count} | Violations: ${data.summary.violations_count} | Compliant: ${data.summary.compliant_count}<br>
                         <strong>Violations Detail:</strong> ${JSON.stringify(data.summary.violations)}
                     `;
+                    showToast("Audit Completed", `Detected ${data.summary.persons_count} person(s), ${data.summary.violations_count} violation(s).`, "info");
                     await fetchViolations();
                     await fetchTelemetryAndStats();
                 } else {
@@ -1062,7 +1746,7 @@
             }
         }
 
-        // Init
+        // Initialize Background Pollers
         fetchFootages();
         fetchTelemetryAndStats();
         fetchViolations();
