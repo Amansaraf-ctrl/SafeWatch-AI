@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import csv
 import time
 import base64
 import datetime
@@ -342,6 +343,33 @@ async def get_violations(limit: int = 50, resolved: Optional[int] = None):
     """Returns recent violations from SQLite / Atlas."""
     filter_val = None if resolved is None else bool(resolved)
     return get_recent_violations(limit=limit, resolved_filter=filter_val)
+
+
+@app.get("/api/violations/export")
+async def export_violations_csv():
+    """Generates an OSHA / ISO industrial safety audit CSV report."""
+    violations = get_recent_violations(limit=1000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Incident ID", "Timestamp", "Camera / Zone", "Worker Name", "Status", "Missing PPE / Infractions", "Confidence Score", "Resolved"])
+    for v in violations:
+        writer.writerow([
+            v.get("id"),
+            v.get("timestamp"),
+            v.get("camera_id"),
+            v.get("worker_name"),
+            v.get("status"),
+            v.get("missing_ppe"),
+            f"{v.get('confidence', 0.0):.2f}",
+            "Resolved" if v.get("resolved") else "Active"
+        ])
+    output.seek(0)
+    filename = f"safewatch_safety_audit_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @app.post("/api/resolve/{violation_id}")

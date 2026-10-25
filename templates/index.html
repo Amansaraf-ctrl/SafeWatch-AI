@@ -471,10 +471,16 @@
                 <!-- Footer Summary Bar -->
                 <div class="p-2.5 bg-brand-surface border-t border-brand-cardBorder flex items-center justify-between text-xs text-gray-400 font-mono">
                     <span id="incident-status-summary">Active Violations: 0</span>
-                    <button onclick="fetchViolations()" class="text-amber-400 hover:underline flex items-center space-x-1">
-                        <i class="fa-solid fa-rotate-right"></i>
-                        <span>Refresh Log</span>
-                    </button>
+                    <div class="flex items-center space-x-3">
+                        <a href="/api/violations/export" download title="Download Safety Audit Report for Compliance (CSV)" class="px-2.5 py-1 rounded bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 hover:text-white flex items-center space-x-1.5 transition text-[11px]">
+                            <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                            <span>Export Audit (CSV)</span>
+                        </a>
+                        <button onclick="fetchViolations()" class="text-amber-400 hover:underline flex items-center space-x-1">
+                            <i class="fa-solid fa-rotate-right"></i>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

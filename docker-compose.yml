@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  safewatch-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safewatch-ai-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ROBOFLOW_API_KEY=g7qCc2fPeBfayBK9z3Mc
+      - PORT=8000
+    volumes:
+      - ./static/snapshots:/app/static/snapshots
+      - ./known_faces:/app/known_faces
+      - ./custom_footage:/app/custom_footage
+      - ./safewatch.db:/app/safewatch.db
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
