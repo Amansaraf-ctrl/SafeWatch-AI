@@ -131,9 +131,11 @@ def evaluate_footwear_certainty(crop, score, cls_name):
         return "No_SafetyShoes", round(max(score, skin_ratio), 2)
 
     # Decisive Industrial Safety Shoes (Steel-toe leather/rubber boots):
-    # Must have high model confidence (>= 0.58) AND virtually zero exposed skin (< 3.5%)
-    if cls_name == "Safety_shoes" and score >= 0.58 and skin_ratio < 0.035:
-        return "Safety_shoes", round(score, 2)
+    # Must have very high model confidence (>= 0.78), proper physical footwear dimensions,
+    # and virtually zero exposed skin (< 3.0%). Prevents dark floor shadows from hallucinating shoes!
+    if cls_name == "Safety_shoes" and score >= 0.78 and skin_ratio < 0.030:
+        if w >= 20 and h >= 12 and (w / float(h) >= 0.8):
+            return "Safety_shoes", round(score, 2)
 
     # Decisive Explicit No_SafetyShoes:
     # Must have high confidence (>= 0.55)
@@ -236,26 +238,22 @@ def verify_industrial_hard_hat(head_crop, yolo_score=0.5):
 def detect_white_safety_helmet(head_crop):
     """
     Specifically detects White Industrial Safety Helmets (Supervisors / Engineers Hard Hats).
-    White hard hats have:
-    1. Smooth polymer dome in upper 65% of head crop.
-    2. Neutral white / off-white reflectance:
-       - High value (brightness V >= 120, Gray >= 120)
-       - Low saturation (S <= 60)
-       - Balanced RGB channels (|R-G| < 35, |R-B| < 35, |G-B| < 35)
-    3. Significant coverage (> 14% of upper head region).
-    4. Smooth curvature without high texturing (Laplacian variance < 700).
+    Strictly rejects flat white walls, ceilings, and light corners by requiring:
+    1. Centered dome geometry: dome must not touch outer left/right crop edges as continuous sheet.
+    2. Bounded surface: top rows must not be continuous white wall extending out of crop.
+    3. Proper polymer smooth reflectance: Laplacian variance within helmet curvature range.
     """
     if head_crop is None or head_crop.size == 0:
         return False, 0.0
 
     h, w = head_crop.shape[:2]
-    if h < 14 or w < 14:
+    if h < 16 or w < 20:
         return False, 0.0
 
     # Upper 65% represents the helmet dome sitting on the head
     dome = head_crop[:max(int(h * 0.65), 10), :]
     dh, dw = dome.shape[:2]
-    if dh < 8 or dw < 8:
+    if dh < 8 or dw < 12:
         return False, 0.0
 
     # 1. HSV analysis
@@ -268,23 +266,31 @@ def detect_white_safety_helmet(head_crop):
     g_ch = dome[:, :, 1].astype(np.int16)
     r_ch = dome[:, :, 2].astype(np.int16)
 
-    is_neutral = (np.abs(r_ch - g_ch) < 35) & (np.abs(r_ch - b_ch) < 35) & (np.abs(g_ch - b_ch) < 35)
-    is_white = (s_ch <= 60) & (v_ch >= 120) & is_neutral
+    is_neutral = (np.abs(r_ch - g_ch) < 32) & (np.abs(r_ch - b_ch) < 32) & (np.abs(g_ch - b_ch) < 32)
+    is_white = (s_ch <= 55) & (v_ch >= 135) & is_neutral
 
     white_ratio = float(np.mean(is_white))
+    if white_ratio < 0.20:
+        return False, 0.0
 
-    # 3. Surface texture (helmets have smooth polymer surface, unlike curly hair or knit caps)
+    # 3. WALL REJECTION CHECK:
+    # If the left margin or right margin is continuous white wall (> 60%), reject as background wall!
+    left_margin_white = float(np.mean(is_white[:, :max(1, int(dw * 0.20))]))
+    right_margin_white = float(np.mean(is_white[:, int(dw * 0.80):]))
+    if left_margin_white > 0.60 or right_margin_white > 0.60:
+        return False, 0.0
+
+    # If the top row is > 50% white, white extends above the crop into ceiling/wall
+    top_row_white = float(np.mean(is_white[:max(1, int(dh * 0.20)), :]))
+    if top_row_white > 0.55:
+        return False, 0.0
+
+    # 4. Surface texture (helmets have smooth polymer surface, unlike curly hair or knit caps)
     gray = cv2.cvtColor(dome, cv2.COLOR_BGR2GRAY)
     lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-    # If bright white dome covers > 14% of the upper head with smooth surface:
-    if white_ratio >= 0.14 and lap_var < 750:
-        conf = min(0.95, round(0.72 + white_ratio * 0.7, 2))
-        return True, conf
-
-    # Under very bright daylight (over-exposure / specular highlights)
-    if white_ratio >= 0.22:
-        conf = min(0.95, round(0.75 + white_ratio * 0.6, 2))
+    if 30 < lap_var < 750 and white_ratio >= 0.22:
+        conf = min(0.92, round(0.70 + white_ratio * 0.5, 2))
         return True, conf
 
     return False, 0.0
@@ -390,6 +396,7 @@ class SpatialWorkerTracker:
                 "consecutive_helmet": 0,
                 "consecutive_no_helmet": 0,
                 "consecutive_in_hand": 0,
+                "consecutive_shoes": 0,
                 "violation_confirmed": False,
                 "violation_frames": 0,
                 "recent_votes": []
@@ -499,9 +506,10 @@ class PPEDetector:
             head_h = max(int((cy2 - cy1) * 0.35), 18)
             h_crop = frame[cy1:min(orig_h, cy1 + head_h), cx1:cx2]
 
-            # Check if there is an overlapping Helmet candidate in head region
+            # Check if there is an overlapping genuine Helmet candidate in head region
             has_helmet_cand = any(
-                p["class_name"] == "Helmet" and p["score"] >= 0.38 and
+                p["class_name"] == "Helmet" and p["score"] >= 0.45 and
+                (p["bbox"][2] - p["bbox"][0] >= 18) and (p["bbox"][3] - p["bbox"][1] >= 14) and
                 (box_containment(p["bbox"], [cx1, cy1, cx2, cy1 + head_h]) > 0.20 or
                  box_iou(p["bbox"], [cx1, cy1, cx2, cy1 + head_h]) > 0.08)
                 for p in raw_ppe_candidates
@@ -574,14 +582,19 @@ class PPEDetector:
                 p_score = ppe["score"]
                 by_center = (p_box[1] + p_box[3]) / 2.0
                 bx_center = (p_box[0] + p_box[2]) / 2.0
+                bw = p_box[2] - p_box[0]
+                bh = p_box[3] - p_box[1]
 
                 if p_cls == "Helmet":
                     # Check Case A: Worn on Head
                     # Helmet center MUST be in the head region (<= py1 + 0.22 ph) and top near head top
                     is_worn_center = (by_center <= py1 + int(ph * 0.22)) and (p_box[1] <= py1 + int(ph * 0.14))
                     has_head_overlap = (box_containment(p_box, worn_head_box) > 0.18 or box_iou(p_box, worn_head_box) > 0.06)
+                    # Worn helmet must be anatomically proportional and horizontally centered (reject tiny 12px noise artifacts)
+                    is_proportional = (bw >= int(pw * 0.24)) and (bh >= int(ph * 0.07)) and (bw >= 16) and (bh >= 12)
+                    is_centered = abs(bx_center - (px1 + px2) / 2.0) <= (pw * 0.36)
 
-                    if is_worn_center and has_head_overlap:
+                    if is_worn_center and has_head_overlap and is_proportional and is_centered:
                         if p_score > best_worn_helmet_score:
                             best_worn_helmet = ppe
                             best_worn_helmet_score = p_score
@@ -608,44 +621,50 @@ class PPEDetector:
             matched_head_ppe = None
 
             # --- SPECIALIZED WHITE SAFETY HELMET & FINE-TUNED AI HEADWEAR DETECTION ---
-            # Strictly crop head region (py1 - 0.10 ph to py1 + 0.22 ph) so torso/hand is NEVER included!
-            head_top_y = max(0, py1 - int(ph * 0.10))
+            # Strictly crop head region (py1 to py1 + 0.22 ph) - NEVER start above py1 to avoid white wall/ceiling background!
+            head_top_y = max(0, py1)
             head_bot_y = min(orig_h, py1 + int(ph * 0.22))
             head_crop = frame[head_top_y:head_bot_y, max(0, px1):min(orig_w, px2)]
 
-            is_white_helm, white_helm_score = detect_white_safety_helmet(head_crop)
-            custom_pred, custom_score = self.custom_learner.predict(head_crop)
+            # CRITICAL RULE: A white-wall heuristic must NEVER override an explicit YOLOX detection of bare head / No_helmet
+            # or a helmet detected in the person's hand!
+            if best_no_helmet is None and best_held_helmet is None:
+                is_white_helm, white_helm_score = detect_white_safety_helmet(head_crop)
+                custom_pred, custom_score = self.custom_learner.predict(head_crop)
 
-            if is_white_helm or custom_pred in ("white_helmet", "standard_helmet"):
-                white_score_val = max(white_helm_score, custom_score if (custom_score and custom_score > 0.5) else 0.88)
-                white_box = [px1, max(0, py1 - int(ph * 0.08)), px2, py1 + int(ph * 0.20)]
-                best_worn_helmet = {"bbox": white_box, "score": white_score_val, "class_name": "Helmet"}
-                best_worn_helmet_score = white_score_val
-                # Suppress false No_helmet on worker's face below white helmet
-                best_no_helmet = None
+                # Only accept white helmet if verified by high-confidence custom AI or strict dome convexity
+                if (custom_pred in ("white_helmet", "standard_helmet") and (custom_score or 0) >= 0.75) or \
+                   (is_white_helm and custom_pred not in ("no_helmet", "unknown")):
+                    white_score_val = max(white_helm_score, custom_score if (custom_score and custom_score > 0.5) else 0.88)
+                    white_box = [px1, max(0, py1 - int(ph * 0.04)), px2, py1 + int(ph * 0.20)]
+                    best_worn_helmet = {"bbox": white_box, "score": white_score_val, "class_name": "Helmet"}
+                    best_worn_helmet_score = white_score_val
 
             # DECIDE SINGLE-FRAME HEADWEAR COMPLIANCE:
-            if best_worn_helmet is not None:
-                # Worn helmet has strong precedence
-                if best_no_helmet is None or best_worn_helmet_score >= best_no_helmet_score - 0.15:
+            if best_held_helmet is not None:
+                # Worker is holding helmet in hand / tucked under arm:
+                # Only override if an unmistakable high-confidence (>= 0.80) worn helmet is also on the head
+                if best_worn_helmet is not None and best_worn_helmet_score >= 0.80 and (best_no_helmet is None or best_worn_helmet_score > best_no_helmet_score + 0.25):
                     frame_verdict = "HELMET"
                     matched_head_ppe = best_worn_helmet
-                elif best_no_helmet_score >= 0.70 and best_worn_helmet_score < 0.32:
+                else:
+                    frame_verdict = "HELMET_IN_HAND"
+                    matched_head_ppe = {
+                        "bbox": best_held_helmet["bbox"],
+                        "score": best_held_helmet["score"],
+                        "class_name": "Helmet_In_Hand"
+                    }
+
+            elif best_worn_helmet is not None:
+                if best_no_helmet is None or best_worn_helmet_score >= best_no_helmet_score:
+                    frame_verdict = "HELMET"
+                    matched_head_ppe = best_worn_helmet
+                elif best_no_helmet_score >= 0.50:
                     frame_verdict = "NO_HELMET"
                     matched_head_ppe = best_no_helmet
                 else:
                     frame_verdict = "HELMET"
                     matched_head_ppe = best_worn_helmet
-
-            elif best_held_helmet is not None:
-                # CRITICAL SAFETY VIOLATION: Worker is carrying helmet in hand / tucked under arm, NOT worn!
-                frame_verdict = "HELMET_IN_HAND"
-                # Mark held helmet with distinct warning class
-                matched_head_ppe = {
-                    "bbox": best_held_helmet["bbox"],
-                    "score": best_held_helmet["score"],
-                    "class_name": "Helmet_In_Hand"
-                }
 
             elif best_no_helmet is not None:
                 has_skin_or_face = False
@@ -654,12 +673,12 @@ class PPEDetector:
                     skin_cr = ycrcb[:, :, 1]
                     skin_cb = ycrcb[:, :, 2]
                     skin_mask = (skin_cr >= 133) & (skin_cr <= 173) & (skin_cb >= 77) & (skin_cb <= 127)
-                    if float(np.mean(skin_mask)) >= 0.030:
+                    if float(np.mean(skin_mask)) >= 0.025:
                         has_skin_or_face = True
                     elif track.get("face_res") and track["face_res"].get("face_box") is not None:
                         has_skin_or_face = True
 
-                if best_no_helmet_score >= 0.44 and has_skin_or_face:
+                if best_no_helmet_score >= 0.40 or has_skin_or_face:
                     frame_verdict = "NO_HELMET"
                     matched_head_ppe = best_no_helmet
 
@@ -674,7 +693,13 @@ class PPEDetector:
                 track["consecutive_helmet"] += 1
                 track["consecutive_no_helmet"] = 0
                 track["consecutive_in_hand"] = 0
-                if track["consecutive_helmet"] >= 3:
+
+                # Require sustained confirmation before switching: 8 frames if previously in violation, 4 if uncertain
+                required_helm_frames = 8 if track.get("violation_confirmed", False) else 4
+                recent_helm_cnt = sum(1 for v in track["recent_votes"] if v == "HELMET")
+                recent_helm_pct = recent_helm_cnt / max(len(track["recent_votes"]), 1)
+
+                if track["consecutive_helmet"] >= required_helm_frames and recent_helm_pct >= 0.60:
                     track["helmet_state"] = "HELMET"
                     track["violation_confirmed"] = False
                     track["violation_frames"] = 0
@@ -687,12 +712,11 @@ class PPEDetector:
                 else:
                     track["consecutive_in_hand"] = 0
 
-                # Anti-flicker: If the person was confirmed wearing a helmet,
-                # do NOT switch on momentary occlusion. Require sustained confirmation.
+                # If previously confirmed wearing helmet, require 6 frames to switch
                 if track["helmet_state"] == "HELMET":
                     recent_viol_cnt = sum(1 for v in track["recent_votes"] if v in ("NO_HELMET", "HELMET_IN_HAND"))
                     recent_viol_pct = recent_viol_cnt / max(len(track["recent_votes"]), 1)
-                    if track["consecutive_no_helmet"] >= 7 and recent_viol_pct >= 0.60:
+                    if track["consecutive_no_helmet"] >= 6 and recent_viol_pct >= 0.55:
                         track["helmet_state"] = "HELMET_IN_HAND" if (track.get("consecutive_in_hand", 0) >= 3) else "NO_HELMET"
                         track["violation_confirmed"] = True
                 else:
@@ -701,8 +725,8 @@ class PPEDetector:
                         track["violation_confirmed"] = True
 
             elif frame_verdict == "UNCERTAIN":
-                # Maintain confirmed HELMET status! No resetting or flickering!
-                pass
+                track["consecutive_helmet"] = 0
+                track["consecutive_no_helmet"] = 0
 
             # --- STEP 4: FOOTWEAR EVALUATION (STRICT CERTAINTY POLICY) ---
             has_verified_shoes = False
@@ -719,11 +743,17 @@ class PPEDetector:
                         fcrop = frame[max(0, p_box[1]):min(orig_h, p_box[3]), max(0, p_box[0]):min(orig_w, p_box[2])]
                         v_cls, v_score = evaluate_footwear_certainty(fcrop, p_score, p_cls)
                         if v_cls == "Safety_shoes":
-                            has_verified_shoes = True
-                            matched_foot_ppe = {"bbox": p_box, "score": v_score, "class_name": "Safety_shoes"}
+                            track["consecutive_shoes"] = track.get("consecutive_shoes", 0) + 1
+                            if track["consecutive_shoes"] >= 4:
+                                has_verified_shoes = True
+                                matched_foot_ppe = {"bbox": p_box, "score": v_score, "class_name": "Safety_shoes"}
                         elif v_cls == "No_SafetyShoes":
+                            track["consecutive_shoes"] = 0
                             has_no_shoes_flag = True
                             matched_foot_ppe = {"bbox": p_box, "score": v_score, "class_name": "No_SafetyShoes"}
+
+            if not has_verified_shoes and not has_no_shoes_flag:
+                track["consecutive_shoes"] = max(0, track.get("consecutive_shoes", 0) - 1)
 
             # Auxiliary check on bottom feet region for exposed skin (slippers/barefoot)
             if not has_no_shoes_flag and not has_verified_shoes:
@@ -856,8 +886,8 @@ class PPEDetector:
                 cv2.putText(annotated, sub_label, (px1 + 6, max(36, py1 - 6)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.40, (240, 240, 240), 1)
 
-            else:
-                if track.get("consecutive_helmet", 0) >= 5:
+            elif track["helmet_state"] == "HELMET" and not has_no_shoes_flag:
+                if track.get("consecutive_helmet", 0) >= 6:
                     track["logged"] = False
                     
                 compliant_in_frame.append({
@@ -875,6 +905,18 @@ class PPEDetector:
                 cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 340, py1), color, -1)
                 cv2.putText(annotated, f"{name_tag} ({sub_tag})", (px1 + 6, max(18, py1 - 7)), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.46, (255, 255, 255), 2)
+
+            else:
+                # MONITORING / AWAITING VERIFICATION (Neutral Amber Box - NEVER FALSE COMPLIANT!)
+                color = (30, 180, 240)  # Amber / Gold
+                cv2.rectangle(annotated, (px1, py1), (px2, py2), color, 2)
+                
+                name_tag = f"MONITORING: {worker_name}" + (" [CONFIRMED ID]" if is_target else "")
+                sub_tag = "Verifying PPE Compliance..."
+                
+                cv2.rectangle(annotated, (px1, max(0, py1 - 26)), (px1 + 340, py1), color, -1)
+                cv2.putText(annotated, f"{name_tag} ({sub_tag})", (px1 + 6, max(18, py1 - 7)), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 2)
 
         # Draw ONLY validated PPE items attached to confirmed workers (NEVER orphaned objects)
         for ppe in final_ppe_to_draw:
