@@ -1043,8 +1043,6 @@
             </div>
         </div>
     </div>
-        </div>
-    </div>
 
     <!-- Modal: Customer Demonstration Feedback & Audit Rating -->
     <div id="feedback-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
@@ -1423,7 +1421,6 @@
         }
 
         // Active request-response loop for client camera (optimized for zero-lag streaming)
-        let isSendingClientFrame = false;
         async function runClientCameraLoop() {
             const video = document.getElementById('client-webcam-feed');
             const canvas = document.getElementById('client-capture-canvas');
