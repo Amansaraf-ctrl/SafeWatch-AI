@@ -27,6 +27,7 @@ from db_logger import (
 )
 from face_recognizer import DEFAULT_KNOWN_DIR
 from trainer import global_learner, TRAINING_DIR, CATEGORIES
+from roboflow_engine import global_roboflow
 
 app = FastAPI(title="SafeWatch AI - Enterprise Industrial Safety Command")
 
@@ -605,6 +606,82 @@ async def delete_training_sample(category: str, filename: str):
     if not ok:
         raise HTTPException(status_code=404, detail="Sample not found.")
     return {"success": True, "dataset_summary": global_learner.get_dataset_summary()}
+
+
+# ---------------- ROBOFLOW ENTERPRISE SUITE ENDPOINTS ----------------
+
+@app.get("/api/roboflow/status")
+async def get_roboflow_status(refresh: bool = False):
+    """Returns connected workspace information, available projects, image counts, and deployed models."""
+    return global_roboflow.get_status(force_refresh=refresh)
+
+
+@app.get("/api/roboflow/project/{project_id}")
+async def get_roboflow_project_versions(project_id: str):
+    """Returns versions, image counts, and model endpoints for a specific Roboflow project."""
+    safe_pid = sanitize_filename(project_id)
+    return global_roboflow.get_project_versions(safe_pid)
+
+
+class RoboflowUploadRequest(BaseModel):
+    snapshot_filename: str
+    project_id: Optional[str] = "safety-shoes-detection-5qgkg-nhiun"
+    split: Optional[str] = "train"
+
+
+@app.post("/api/roboflow/upload_snapshot")
+async def upload_snapshot_to_roboflow(payload: RoboflowUploadRequest):
+    """Uploads a high-resolution evidence snapshot directly to Roboflow for active team annotation."""
+    safe_file = sanitize_filename(payload.snapshot_filename)
+    safe_pid = sanitize_filename(payload.project_id or "safety-shoes-detection-5qgkg-nhiun")
+    safe_split = sanitize_filename(payload.split or "train")
+
+    result = global_roboflow.upload_snapshot(safe_file, project_id=safe_pid, split=safe_split)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Upload failed"))
+    return result
+
+
+class RoboflowSyncRequest(BaseModel):
+    project_id: str
+    version: Optional[int] = 1
+
+
+@app.post("/api/roboflow/sync_dataset")
+async def sync_roboflow_dataset(payload: RoboflowSyncRequest):
+    """Downloads a full dataset version from Roboflow and extracts it into SafeWatch AI's training storage."""
+    safe_pid = sanitize_filename(payload.project_id)
+    v = payload.version or 1
+    result = global_roboflow.sync_dataset_to_local(safe_pid, version=v)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Sync failed"))
+    return result
+
+
+class RoboflowInferRequest(BaseModel):
+    project_id: Optional[str] = "safety-shoes-detection-5qgkg-nhiun"
+    version: Optional[int] = 3
+    snapshot_filename: Optional[str] = None
+
+
+@app.post("/api/roboflow/test_inference")
+async def test_roboflow_inference(payload: RoboflowInferRequest):
+    """Tests serverless cloud inference against the user's hosted Roboflow model."""
+    safe_pid = sanitize_filename(payload.project_id or "safety-shoes-detection-5qgkg-nhiun")
+    v = payload.version or 3
+
+    if payload.snapshot_filename:
+        snap_path = SNAPSHOTS_DIR / sanitize_filename(payload.snapshot_filename)
+        if not snap_path.exists():
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+        frame = cv2.imread(str(snap_path))
+    else:
+        frame = np.full((320, 320, 3), 120, dtype=np.uint8)
+
+    result = global_roboflow.predict_cloud(frame, project_id=safe_pid, version=v)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Cloud inference failed"))
+    return result
 
 
 if __name__ == "__main__":

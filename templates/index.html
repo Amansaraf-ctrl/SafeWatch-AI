@@ -503,6 +503,12 @@
                 </div>
 
                 <div class="flex items-center space-x-2">
+                    <!-- Push Snapshot directly to Roboflow Annotation Queue -->
+                    <button id="modal-roboflow-btn" onclick="uploadCurrentSnapshotToRoboflow()" title="Push Snapshot to Roboflow for Active Annotation" class="px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-600 hover:text-white border border-purple-500/30 text-purple-300 text-xs font-mono font-bold transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span id="modal-roboflow-btn-text" class="hidden sm:inline">Push to Roboflow</span>
+                    </button>
+
                     <!-- Mark as Resolved directly in Modal -->
                     <button id="modal-resolve-btn" onclick="resolveCurrentModalViolation()" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold transition flex items-center space-x-1.5">
                         <i class="fa-solid fa-check"></i>
@@ -843,9 +849,9 @@
         </div>
     </div>
 
-    <!-- Modal: AI Training & Edge Fine-Tuning Studio -->
+    <!-- Modal: AI Training & Edge Fine-Tuning Studio + Roboflow Cloud Suite -->
     <div id="training-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
-        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
             <!-- Header -->
             <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
                 <div class="flex items-center space-x-3">
@@ -854,10 +860,14 @@
                     </div>
                     <div>
                         <div class="flex items-center space-x-2">
-                            <h3 class="font-bold text-white text-sm font-mono">Edge AI Model Fine-Tuning Studio</h3>
+                            <h3 class="font-bold text-white text-sm font-mono">AI Studio & Roboflow Suite</h3>
                             <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">RTX 3050 CUDA</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
+                                <i class="fa-solid fa-cloud text-[9px]"></i>
+                                <span>Roboflow Synced</span>
+                            </span>
                         </div>
-                        <p class="text-[11px] text-gray-400 font-mono">Upload site-specific images (e.g. White Helmets) & calibrate custom weights</p>
+                        <p class="text-[11px] text-gray-400 font-mono">Calibrate local PyTorch weights & manage Roboflow cloud datasets</p>
                     </div>
                 </div>
                 <button onclick="closeTrainingModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
@@ -865,8 +875,21 @@
                 </button>
             </div>
 
-            <!-- Body -->
-            <div class="p-5 space-y-4 overflow-y-auto font-mono text-xs">
+            <!-- Modal Nav Tabs -->
+            <div class="px-5 pt-2.5 border-b border-brand-cardBorder flex items-center space-x-2 bg-brand-surface/40 text-xs font-mono">
+                <button id="train-tab-btn-edge" onclick="switchTrainingTab('edge')" class="px-3.5 py-2 border-b-2 border-purple-500 text-purple-300 font-bold flex items-center space-x-1.5 transition">
+                    <i class="fa-solid fa-microchip"></i>
+                    <span>Edge Fine-Tuning Studio</span>
+                </button>
+                <button id="train-tab-btn-roboflow" onclick="switchTrainingTab('roboflow')" class="px-3.5 py-2 border-b-2 border-transparent text-gray-400 hover:text-white font-medium flex items-center space-x-1.5 transition">
+                    <i class="fa-solid fa-cloud"></i>
+                    <span>Roboflow Cloud Suite</span>
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-0.5" title="Connected"></span>
+                </button>
+            </div>
+
+            <!-- Tab 1: Edge Fine-Tuning Studio -->
+            <div id="tab-content-edge" class="p-5 space-y-4 overflow-y-auto font-mono text-xs">
                 <!-- Category Selector -->
                 <div>
                     <label class="block text-gray-300 mb-1.5 font-bold flex items-center space-x-1.5">
@@ -966,6 +989,54 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Tab 2: Roboflow Cloud Suite -->
+            <div id="tab-content-roboflow" class="hidden p-5 space-y-4 overflow-y-auto font-mono text-xs">
+                <!-- Workspace Pill -->
+                <div class="p-3 bg-brand-surface rounded-xl border border-brand-cardBorder flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center text-sm font-bold">
+                            RF
+                        </div>
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="font-bold text-white text-xs">Amans Workspace</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                    <span>API Verified</span>
+                                </span>
+                            </div>
+                            <p class="text-[10px] text-gray-400">Workspace ID: aman-saraf-zldzj | 5 Cloud Projects</p>
+                        </div>
+                    </div>
+                    <button onclick="fetchRoboflowOverview(true)" class="px-2.5 py-1 rounded bg-brand-card hover:bg-brand-cardBorder text-gray-300 text-[11px] border border-brand-cardBorder flex items-center space-x-1 transition">
+                        <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
+                        <span>Refresh Projects</span>
+                    </button>
+                </div>
+
+                <!-- Projects List Container -->
+                <div class="space-y-2.5" id="roboflow-projects-list">
+                    <div class="text-center py-6 text-gray-500">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i> Loading Roboflow Projects...
+                    </div>
+                </div>
+
+                <!-- Roboflow Action Terminal Output -->
+                <div id="rf-terminal-box" class="hidden space-y-2">
+                    <div class="flex items-center justify-between text-[11px] text-gray-400">
+                        <span class="flex items-center space-x-1.5 text-cyan-400 font-bold">
+                            <i class="fa-solid fa-cloud-arrow-down animate-pulse"></i>
+                            <span>Roboflow Cloud Operations Log</span>
+                        </span>
+                        <span id="rf-status-label" class="text-emerald-400">Ready</span>
+                    </div>
+                    <div id="rf-terminal-log" class="p-3 bg-black/90 border border-gray-800 rounded-xl font-mono text-[10px] text-cyan-300 h-28 overflow-y-auto space-y-1">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
         </div>
     </div>
 
@@ -2466,6 +2537,191 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i> Start Edge Fine-Tuning';
+            }
+        }
+
+        // ==========================================
+        // Roboflow Cloud Suite Functions
+        // ==========================================
+        let cachedRoboflowData = null;
+
+        function switchTrainingTab(tab) {
+            const edgeBtn = document.getElementById('train-tab-btn-edge');
+            const rfBtn = document.getElementById('train-tab-btn-roboflow');
+            const edgeContent = document.getElementById('tab-content-edge');
+            const rfContent = document.getElementById('tab-content-roboflow');
+
+            if (tab === 'edge') {
+                edgeBtn.className = "px-3.5 py-2 border-b-2 border-purple-500 text-purple-300 font-bold flex items-center space-x-1.5 transition";
+                rfBtn.className = "px-3.5 py-2 border-b-2 border-transparent text-gray-400 hover:text-white font-medium flex items-center space-x-1.5 transition";
+                edgeContent.classList.remove('hidden');
+                rfContent.classList.add('hidden');
+            } else {
+                rfBtn.className = "px-3.5 py-2 border-b-2 border-purple-500 text-purple-300 font-bold flex items-center space-x-1.5 transition";
+                edgeBtn.className = "px-3.5 py-2 border-b-2 border-transparent text-gray-400 hover:text-white font-medium flex items-center space-x-1.5 transition";
+                rfContent.classList.remove('hidden');
+                edgeContent.classList.add('hidden');
+                fetchRoboflowOverview();
+            }
+        }
+
+        async function fetchRoboflowOverview(refresh = false) {
+            const container = document.getElementById('roboflow-projects-list');
+            if (!container) return;
+
+            if (refresh || !cachedRoboflowData) {
+                container.innerHTML = `<div class="text-center py-6 text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Connecting to Roboflow API (Amans Workspace)...</div>`;
+                try {
+                    const res = await fetch(`/api/roboflow/status?refresh=${refresh ? 'true' : 'false'}`);
+                    const data = await res.json();
+                    cachedRoboflowData = data;
+                } catch (err) {
+                    container.innerHTML = `<div class="text-center py-4 text-red-400">Failed to connect to Roboflow: ${err.message}</div>`;
+                    return;
+                }
+            }
+
+            if (!cachedRoboflowData || !cachedRoboflowData.projects) {
+                container.innerHTML = `<div class="text-center py-4 text-red-400">No project data returned from Roboflow API.</div>`;
+                return;
+            }
+
+            container.innerHTML = cachedRoboflowData.projects.map(p => {
+                const classKeys = Object.keys(p.classes || {}).slice(0, 4).join(', ');
+                const hasModel = p.has_model;
+                return `
+                    <div class="p-3 bg-brand-surface rounded-xl border border-brand-cardBorder hover:border-purple-500/40 transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-sm font-bold text-white">${p.name}</span>
+                                <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${hasModel ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-700 text-gray-300'}">
+                                    ${hasModel ? 'MODEL READY' : 'DATASET'}
+                                </span>
+                                <span class="text-[10px] text-gray-400">${p.images} Images</span>
+                            </div>
+                            <div class="text-[10px] text-gray-400 flex flex-wrap items-center gap-1.5">
+                                <span>Type: <strong class="text-purple-300">${p.type}</strong></span>
+                                <span>•</span>
+                                <span>Versions: <strong class="text-cyan-400">${p.versions_count}</strong></span>
+                                ${classKeys ? `<span>•</span><span>Classes: <strong class="text-amber-300">${classKeys}</strong></span>` : ''}
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-1.5 w-full sm:w-auto">
+                            ${p.versions_count > 0 ? `
+                                <button onclick="syncRoboflowProject('${p.id}', ${p.versions_count})" title="Download and import dataset to local storage" class="flex-1 sm:flex-none px-2.5 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-200 hover:text-white text-[11px] font-bold flex items-center justify-center space-x-1 transition">
+                                    <i class="fa-solid fa-cloud-arrow-down text-cyan-400 text-[10px]"></i>
+                                    <span>Sync (v${p.versions_count})</span>
+                                </button>
+                            ` : ''}
+                            ${hasModel ? `
+                                <button onclick="testRoboflowCloudModel('${p.id}', ${p.versions_count})" title="Execute serverless cloud inference" class="flex-1 sm:flex-none px-2.5 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-600 hover:text-white border border-purple-500/30 text-purple-300 text-[11px] font-bold flex items-center justify-center space-x-1 transition">
+                                    <i class="fa-solid fa-bolt text-amber-400 text-[10px]"></i>
+                                    <span>Test Cloud</span>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function syncRoboflowProject(pid, ver) {
+            const termBox = document.getElementById('rf-terminal-box');
+            const termLog = document.getElementById('rf-terminal-log');
+            const statusLabel = document.getElementById('rf-status-label');
+            termBox.classList.remove('hidden');
+            termLog.innerHTML = `<div>[ROBOFLOW SYNC] Requesting dataset export for '${pid}' (version ${ver})...</div>`;
+            statusLabel.textContent = "Syncing dataset...";
+
+            try {
+                const res = await fetch('/api/roboflow/sync_dataset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project_id: pid, version: ver })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    termLog.innerHTML += `<div class="text-emerald-400 font-bold">[SUCCESS] ${data.message}</div>`;
+                    termLog.innerHTML += `<div class="text-cyan-300">[STORAGE] Local extracted path: ${data.extracted_path}</div>`;
+                    termLog.scrollTop = termLog.scrollHeight;
+                    statusLabel.textContent = "Dataset Synced ✓";
+                    showToast("Roboflow Dataset Synced", `Successfully imported ${data.images_synced} images to local storage!`, "success");
+                } else {
+                    termLog.innerHTML += `<div class="text-red-400 font-bold">[ERROR] ${data.detail || "Sync failed"}</div>`;
+                    statusLabel.textContent = "Sync Error";
+                    showToast("Sync Error", data.detail || "Failed to download dataset", "danger");
+                }
+            } catch (err) {
+                termLog.innerHTML += `<div class="text-red-400 font-bold">[ERROR] ${err.message}</div>`;
+                showToast("Error", err.message, "danger");
+            }
+        }
+
+        async function testRoboflowCloudModel(pid, ver) {
+            const termBox = document.getElementById('rf-terminal-box');
+            const termLog = document.getElementById('rf-terminal-log');
+            const statusLabel = document.getElementById('rf-status-label');
+            termBox.classList.remove('hidden');
+            termLog.innerHTML = `<div>[ROBOFLOW CLOUD INFER] Calling serverless endpoint: ${pid}/${ver}...</div>`;
+            statusLabel.textContent = "Running cloud model...";
+
+            try {
+                const res = await fetch('/api/roboflow/test_inference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project_id: pid, version: ver })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    termLog.innerHTML += `<div class="text-emerald-400 font-bold">[RESPONSE] Cloud latency: ${data.inference_ms}ms | Model: ${data.model_id}</div>`;
+                    termLog.innerHTML += `<div class="text-cyan-300">[PREDICTIONS] Count: ${data.predictions_count} | ${JSON.stringify(data.predictions)}</div>`;
+                    termLog.scrollTop = termLog.scrollHeight;
+                    statusLabel.textContent = "Inference Completed ✓";
+                    showToast("Roboflow Model Test", `Cloud responded in ${data.inference_ms}ms with ${data.predictions_count} detection(s)!`, "success");
+                } else {
+                    termLog.innerHTML += `<div class="text-red-400 font-bold">[ERROR] ${data.detail || "Inference failed"}</div>`;
+                    statusLabel.textContent = "Inference Error";
+                    showToast("Inference Error", data.detail || "Serverless model failed", "danger");
+                }
+            } catch (err) {
+                termLog.innerHTML += `<div class="text-red-400 font-bold">[ERROR] ${err.message}</div>`;
+                showToast("Error", err.message, "danger");
+            }
+        }
+
+        async function uploadCurrentSnapshotToRoboflow() {
+            if (!currentSnapshotRecord || !currentSnapshotRecord.snapshot_file) {
+                showToast("No Snapshot", "Please open a snapshot incident to push to Roboflow.", "danger");
+                return;
+            }
+            const btn = document.getElementById('modal-roboflow-btn');
+            const btnText = document.getElementById('modal-roboflow-btn-text');
+            btn.disabled = true;
+            btnText.textContent = "Uploading...";
+
+            try {
+                const res = await fetch('/api/roboflow/upload_snapshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        snapshot_filename: currentSnapshotRecord.snapshot_file,
+                        project_id: 'safety-shoes-detection-5qgkg-nhiun',
+                        split: 'train'
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast("Roboflow Upload Success", `Pushed ${currentSnapshotRecord.snapshot_file} to Roboflow! ID: ${data.roboflow_id}`, "success");
+                    btnText.textContent = "Pushed to Roboflow ✓";
+                } else {
+                    showToast("Upload Error", data.detail || "Failed to upload to Roboflow", "danger");
+                    btnText.textContent = "Push to Roboflow";
+                }
+            } catch (err) {
+                showToast("Error", err.message, "danger");
+                btnText.textContent = "Push to Roboflow";
+            } finally {
+                btn.disabled = false;
             }
         }
 
