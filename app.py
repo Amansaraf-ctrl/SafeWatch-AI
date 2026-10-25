@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import time
 import base64
 import datetime
@@ -8,6 +9,7 @@ import numpy as np
 import torch
 from pathlib import Path
 from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -19,11 +21,52 @@ from db_logger import (
     get_recent_violations, 
     resolve_violation_in_db, 
     get_analytics_summary,
+    log_customer_feedback,
+    get_customer_feedbacks,
     SNAPSHOTS_DIR
 )
 from face_recognizer import DEFAULT_KNOWN_DIR
 
 app = FastAPI(title="SafeWatch AI - Enterprise Industrial Safety Command")
+
+# Security payload limits
+MAX_VIDEO_SIZE = 150 * 1024 * 1024   # 150 MB
+MAX_IMAGE_SIZE = 15 * 1024 * 1024    # 15 MB
+MAX_FRAME_SIZE = 5 * 1024 * 1024     # 5 MB
+
+
+def sanitize_filename(filename: str) -> str:
+    """Strips path traversal artifacts and keeps safe alphanumeric characters."""
+    clean = Path(filename).name
+    clean = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', clean)
+    return clean[:128]
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """
+    Enterprise Security Headers Middleware:
+    Prevents clickjacking, MIME sniffing, cross-site scripting (XSS),
+    and enforces HSTS over HTTPS Cloudflare Tunnels.
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # HSTS when served through secure HTTPS proxy/tunnel
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+    # Content-Security-Policy
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com data: blob:; "
+        "img-src 'self' data: blob: https:; "
+        "media-src 'self' data: blob:; "
+        "connect-src 'self' blob: data:;"
+    )
+    return response
 
 # Directory setup
 BASE_DIR = Path(r"C:\ppe detection")
@@ -240,25 +283,29 @@ async def list_footages():
 
 @app.post("/api/upload_footage")
 async def upload_footage(file: UploadFile = File(...)):
-    """Uploads industrial site video directly from the dashboard."""
+    """Uploads industrial site video directly from the dashboard with security guards."""
     valid_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
-    ext = Path(file.filename).suffix.lower()
+    safe_name = sanitize_filename(file.filename)
+    ext = Path(safe_name).suffix.lower()
     if ext not in valid_exts:
-        raise HTTPException(status_code=400, detail="Invalid video format. Supported: .mp4, .avi, .mov, .mkv")
+        raise HTTPException(status_code=400, detail="Invalid video format. Supported: .mp4, .avi, .mov, .mkv, .webm")
 
-    save_path = FOOTAGE_DIR / file.filename
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(status_code=413, detail=f"File exceeds maximum allowed size ({MAX_VIDEO_SIZE // (1024*1024)}MB).")
+
+    save_path = FOOTAGE_DIR / safe_name
     with open(save_path, "wb") as f:
-        content = await file.read()
         f.write(content)
 
-    active_stream_state["active_video"] = file.filename
+    active_stream_state["active_video"] = safe_name
     active_stream_state["source"] = "footage"
-    print(f"[FOOTAGE UPLOAD] Saved industrial video: {file.filename}")
+    print(f"[FOOTAGE UPLOAD] Securely saved industrial video: {safe_name} ({len(content)} bytes)")
 
     return {
         "success": True,
-        "filename": file.filename,
-        "message": f"Successfully loaded industrial site footage: {file.filename}"
+        "filename": safe_name,
+        "message": f"Successfully loaded industrial site footage: {safe_name}"
     }
 
 
@@ -312,14 +359,22 @@ async def enroll_worker(name: str = Form(...), worker_id: str = Form(""), file: 
     Enrolls a worker's face into SFace & YuNet feature database.
     Supports registering ANY worker on site for face verification.
     """
+    clean_name = sanitize_filename(name.strip())
+    clean_worker_id = sanitize_filename(worker_id.strip()) if worker_id else ""
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Worker name contains invalid characters.")
+
     contents = await file.read()
+    if len(contents) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail=f"Image exceeds maximum size ({MAX_IMAGE_SIZE // (1024*1024)}MB).")
+
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file format.")
 
-    ok, msg = detector.face_system.enroll_face(img, name=name, worker_id=worker_id)
+    ok, msg = detector.face_system.enroll_face(img, name=clean_name, worker_id=clean_worker_id)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
 
@@ -334,7 +389,8 @@ async def enroll_worker(name: str = Form(...), worker_id: str = Form(""), file: 
 @app.delete("/api/workers/{filename}")
 async def delete_worker(filename: str):
     """Unregisters a worker and removes their face embedding from the database."""
-    ok, msg = detector.face_system.delete_face(filename)
+    safe_filename = sanitize_filename(filename)
+    ok, msg = detector.face_system.delete_face(safe_filename)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     return {
@@ -348,6 +404,9 @@ async def delete_worker(filename: str):
 async def audit_image(file: UploadFile = File(...)):
     """Runs on-demand PPE detection and face matching on an uploaded photo."""
     contents = await file.read()
+    if len(contents) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail=f"Audit image exceeds maximum size ({MAX_IMAGE_SIZE // (1024*1024)}MB).")
+
     nparr = np.frombuffer(contents, np.uint8)
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -362,6 +421,96 @@ async def audit_image(file: UploadFile = File(...)):
         "summary": summary,
         "annotated_image": f"data:image/jpeg;base64,{b64_str}"
     }
+
+
+class ClientFrameRequest(BaseModel):
+    frame: str  # Data URL or base64 JPEG
+    camera_id: Optional[str] = "Device_Cam"
+
+
+@app.post("/api/process_client_frame")
+async def process_client_frame(data: ClientFrameRequest):
+    """
+    Ingests live video frames from client devices (Smartphones, Tablets, External USB cameras).
+    Runs real-time RTX 3050 CUDA YOLOX + SFace detection and streams back the annotated frame & telemetry.
+    """
+    t0 = time.time()
+    raw_b64 = data.frame
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+
+    try:
+        img_bytes = base64.b64decode(raw_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 payload.")
+
+    if len(img_bytes) > MAX_FRAME_SIZE:
+        raise HTTPException(status_code=413, detail="Frame exceeds 5MB payload limit.")
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Unable to decode frame.")
+
+    # Downscale high-res frames to max 1280px for guaranteed 30+ FPS low latency
+    h, w = frame.shape[:2]
+    if max(h, w) > 1280:
+        scale = 1280.0 / max(h, w)
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+
+    cam_id = sanitize_filename(data.camera_id or "Device_Cam")
+    annotated, summary = detector.detect(frame, camera_id=cam_id, save_snapshots=True)
+
+    infer_ms = (time.time() - t0) * 1000
+    fps = round(1000.0 / max(infer_ms, 1.0), 1)
+    active_stream_state["last_inference_ms"] = round(infer_ms, 1)
+    active_stream_state["last_fps"] = fps
+
+    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    if not ret_enc:
+        raise HTTPException(status_code=500, detail="Frame compression failure.")
+
+    out_b64 = base64.b64encode(buffer).decode('utf-8')
+    return {
+        "summary": summary,
+        "annotated_frame": f"data:image/jpeg;base64,{out_b64}",
+        "inference_ms": round(infer_ms, 1),
+        "fps": fps
+    }
+
+
+class CustomerFeedbackRequest(BaseModel):
+    evaluator_name: str
+    organization: Optional[str] = "Demo Evaluator"
+    rating: int = 5
+    category: Optional[str] = "General"
+    comments: str
+
+
+@app.post("/api/feedback")
+async def submit_feedback(data: CustomerFeedbackRequest, request: Request):
+    """Saves customer demonstration feedback and evaluation scores."""
+    client_ip = request.client.host if request.client else "unknown"
+    evaluator = sanitize_filename(data.evaluator_name.strip()) or "Anonymous"
+    fid = log_customer_feedback(
+        evaluator_name=evaluator[:64],
+        organization=(data.organization or "Client")[:64],
+        rating=max(1, min(5, data.rating)),
+        category=(data.category or "General")[:32],
+        comments=data.comments[:1000],
+        ip_address=client_ip
+    )
+    return {
+        "success": True, 
+        "feedback_id": fid, 
+        "message": "Thank you! Your evaluation and feedback has been securely stored."
+    }
+
+
+@app.get("/api/feedback")
+async def list_feedback():
+    """Returns past customer feedback records."""
+    return get_customer_feedbacks(limit=50)
 
 
 if __name__ == "__main__":

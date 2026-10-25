@@ -32,5 +32,6 @@ known_faces/*
 
 # Logs and Checkpoints
 *.log
+*.exe
 .system_generated/
 YOLOX/YOLOX_outputs/

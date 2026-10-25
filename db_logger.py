@@ -61,6 +61,18 @@ def get_sqlite_conn():
                 resolved INTEGER DEFAULT 0
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS customer_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                evaluator_name TEXT NOT NULL,
+                organization TEXT,
+                rating INTEGER DEFAULT 5,
+                category TEXT DEFAULT 'General',
+                comments TEXT NOT NULL,
+                ip_address TEXT
+            )
+        """)
     return conn
 
 
@@ -193,6 +205,32 @@ def get_analytics_summary():
                 "no_safety_shoes": no_shoes
             }
         }
+    finally:
+        conn.close()
+
+
+def log_customer_feedback(evaluator_name, organization, rating, category, comments, ip_address=""):
+    """Stores customer feedback and evaluation notes in SQLite."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    conn = get_sqlite_conn()
+    try:
+        with conn:
+            cur = conn.execute("""
+                INSERT INTO customer_feedback (
+                    timestamp, evaluator_name, organization, rating, category, comments, ip_address
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (now_iso, evaluator_name, organization, rating, category, comments, ip_address))
+            return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_customer_feedbacks(limit=50):
+    """Retrieves customer evaluations and feedback entries."""
+    conn = get_sqlite_conn()
+    try:
+        cur = conn.execute("SELECT * FROM customer_feedback ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
 

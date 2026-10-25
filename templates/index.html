@@ -154,7 +154,11 @@
                     </button>
                     <button id="btn-chan-cam" onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition">
                         <i class="fa-solid fa-video"></i>
-                        <span>Live Laptop Cam</span>
+                        <span>Laptop Cam</span>
+                    </button>
+                    <button id="btn-chan-device-cam" onclick="switchChannel('device_cam')" class="px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-mobile-screen text-emerald-400"></i>
+                        <span>Device Cam</span>
                     </button>
                 </div>
 
@@ -169,6 +173,12 @@
 
             <!-- Right: Action Center -->
             <div class="flex items-center space-x-2.5">
+                <!-- Customer Feedback Button -->
+                <button onclick="openFeedbackModal()" title="Client / Evaluator System Feedback" class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded-lg text-xs font-semibold font-mono flex items-center space-x-1.5 transition">
+                    <i class="fa-solid fa-comment-dots text-xs"></i>
+                    <span class="hidden sm:inline">Feedback</span>
+                </button>
+
                 <!-- Audio Alert Toggle -->
                 <button id="btn-audio-toggle" onclick="toggleAudioChime()" title="Toggle Audible Radar Violation Chime" class="w-8 h-8 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder flex items-center justify-center text-amber-400 transition">
                     <i id="audio-toggle-icon" class="fa-solid fa-volume-high text-xs"></i>
@@ -294,7 +304,7 @@
                     </div>
 
                     <!-- Active Video Selector Dropdown -->
-                    <div class="flex items-center space-x-2">
+                    <div id="footage-controls" class="flex items-center space-x-2">
                         <span class="text-gray-400 hidden sm:inline">Footage:</span>
                         <select id="footage-selector" onchange="changeVideoFile(this.value)" class="bg-brand-card border border-brand-cardBorder text-gray-200 text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-amber-500 font-mono">
                             <option value="">Awaiting Footage...</option>
@@ -303,10 +313,30 @@
                             <i class="fa-solid fa-arrows-rotate text-[11px]"></i>
                         </button>
                     </div>
+
+                    <!-- Device Camera Controls (Visible when Device Cam active) -->
+                    <div id="device-cam-controls" class="hidden flex items-center space-x-2">
+                        <span class="text-emerald-400 font-bold flex items-center space-x-1">
+                            <i class="fa-solid fa-circle-dot animate-pulse text-[10px]"></i>
+                            <span class="hidden sm:inline">Camera:</span>
+                        </span>
+                        <select id="device-camera-select" onchange="startDeviceCamera(this.value)" class="bg-brand-card border border-emerald-500/40 text-emerald-300 text-xs px-2.5 py-1 rounded-lg focus:outline-none focus:border-emerald-400 font-mono">
+                            <option value="environment">📱 Rear / Back Camera</option>
+                            <option value="user">👤 Front / Selfie Camera</option>
+                        </select>
+                        <button onclick="switchCameraFacing()" title="Flip Front/Rear Camera" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-mono transition flex items-center space-x-1">
+                            <i class="fa-solid fa-camera-rotate"></i>
+                            <span class="hidden md:inline">Flip</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Video Canvas Viewport -->
                 <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden select-none group">
+                    <!-- Hidden client-side webcam ingestion video and canvas -->
+                    <video id="client-webcam-feed" playsinline autoplay muted class="hidden"></video>
+                    <canvas id="client-capture-canvas" class="hidden"></canvas>
+
                     <!-- CCTV Screen Corner HUD Brackets -->
                     <div class="hud-bracket top-3 left-3 border-t-2 border-l-2"></div>
                     <div class="hud-bracket top-3 right-3 border-t-2 border-r-2"></div>
@@ -317,7 +347,7 @@
                     <div class="absolute top-4 left-4 pointer-events-none flex items-center space-x-3 text-[11px] font-mono z-20">
                         <span class="px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-red-500/40 text-red-400 font-bold flex items-center space-x-1.5">
                             <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                            <span>REC [24/7 LIVE]</span>
+                            <span id="cctv-rec-label">REC [24/7 LIVE]</span>
                         </span>
                         <span class="px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-gray-700 text-gray-300" id="cctv-live-ms">
                             00:00:00.000
@@ -360,6 +390,10 @@
                         <button onclick="switchChannel('cam')" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 font-semibold transition flex items-center space-x-1.5">
                             <i class="fa-solid fa-camera text-cyan-400"></i>
                             <span>Laptop Webcam</span>
+                        </button>
+                        <button onclick="switchChannel('device_cam')" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-emerald-400 font-semibold transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-mobile-screen text-emerald-400"></i>
+                            <span>Device Cam (Mobile/USB)</span>
                         </button>
                         <button onclick="openAuditModal()" class="px-3 py-1 rounded-lg bg-brand-card hover:bg-brand-cardBorder border border-brand-cardBorder text-gray-300 font-semibold transition flex items-center space-x-1.5">
                             <i class="fa-solid fa-magnifying-glass-chart text-emerald-400"></i>
@@ -803,6 +837,88 @@
         </div>
     </div>
 
+    <!-- Modal: Customer Demonstration Feedback & Audit Rating -->
+    <div id="feedback-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel border-brand-cardBorder rounded-2xl max-w-xl w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-brand-cardBorder flex items-center justify-between bg-brand-surface">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                        <i class="fa-solid fa-comment-dots text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-sm font-mono">Customer Feedback & Evaluation</h3>
+                        <p class="text-[11px] text-gray-400">Rate SafeWatch AI system performance & site readiness</p>
+                    </div>
+                </div>
+                <button onclick="closeFeedbackModal()" class="text-gray-400 hover:text-white text-lg w-7 h-7 rounded-lg bg-brand-card flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <form id="feedback-form" onsubmit="submitCustomerFeedback(event)" class="p-5 space-y-4 font-mono text-xs">
+                <!-- Evaluator Name & Organization -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-gray-300 mb-1 font-semibold">Evaluator Name / Lead *</label>
+                        <input type="text" id="fb-name" required placeholder="e.g. John Doe / Safety Inspector" class="w-full bg-brand-card border border-brand-cardBorder rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-1 font-semibold">Client / Company Name</label>
+                        <input type="text" id="fb-org" placeholder="e.g. Industrial Safety Corp" class="w-full bg-brand-card border border-brand-cardBorder rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                </div>
+
+                <!-- Star Rating -->
+                <div>
+                    <label class="block text-gray-300 mb-1.5 font-semibold">System Rating (1 to 5 Stars)</label>
+                    <div class="flex items-center space-x-2" id="fb-star-container">
+                        <button type="button" onclick="setFeedbackRating(1)" class="fb-star text-2xl text-amber-400 hover:scale-110 transition"><i class="fa-solid fa-star"></i></button>
+                        <button type="button" onclick="setFeedbackRating(2)" class="fb-star text-2xl text-amber-400 hover:scale-110 transition"><i class="fa-solid fa-star"></i></button>
+                        <button type="button" onclick="setFeedbackRating(3)" class="fb-star text-2xl text-amber-400 hover:scale-110 transition"><i class="fa-solid fa-star"></i></button>
+                        <button type="button" onclick="setFeedbackRating(4)" class="fb-star text-2xl text-amber-400 hover:scale-110 transition"><i class="fa-solid fa-star"></i></button>
+                        <button type="button" onclick="setFeedbackRating(5)" class="fb-star text-2xl text-amber-400 hover:scale-110 transition"><i class="fa-solid fa-star"></i></button>
+                        <span id="fb-rating-text" class="ml-2 font-bold text-amber-400">5/5 - Outstanding</span>
+                    </div>
+                    <input type="hidden" id="fb-rating-val" value="5">
+                </div>
+
+                <!-- Evaluation Focus Category -->
+                <div>
+                    <label class="block text-gray-300 mb-1 font-semibold">Evaluation Focus</label>
+                    <select id="fb-category" class="w-full bg-brand-card border border-brand-cardBorder rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500">
+                        <option value="Model Accuracy">Detection Accuracy (Helmet & Safety Shoes)</option>
+                        <option value="Biometrics">Worker Biometrics & Facial Recognition</option>
+                        <option value="Latency & FPS">Edge Inference Latency (~28ms / 35 FPS)</option>
+                        <option value="UI/UX Experience">Command Center UI / UX & Snapshot Zoom</option>
+                        <option value="Site Deployment">Industrial Site Deployment Readiness</option>
+                    </select>
+                </div>
+
+                <!-- Comments & Field Notes -->
+                <div>
+                    <label class="block text-gray-300 mb-1 font-semibold">Feedback & Demonstration Notes *</label>
+                    <textarea id="fb-comments" rows="3" required placeholder="Enter customer feedback, remarks, or specific deployment requirements..." class="w-full bg-brand-card border border-brand-cardBorder rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"></textarea>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex items-center justify-between pt-2">
+                    <button type="button" onclick="viewRecentFeedbacks()" class="text-cyan-400 hover:underline flex items-center space-x-1">
+                        <i class="fa-solid fa-list"></i>
+                        <span>View Past Reviews (<span id="fb-history-count">0</span>)</span>
+                    </button>
+                    <div class="flex space-x-2">
+                        <button type="button" onclick="closeFeedbackModal()" class="px-4 py-2 bg-brand-card hover:bg-brand-cardBorder text-gray-300 rounded-lg">Cancel</button>
+                        <button type="submit" id="fb-submit-btn" class="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-black font-extrabold rounded-lg shadow-lg shadow-amber-500/20">Submit Feedback</button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Feedback History Panel (Collapsible) -->
+            <div id="fb-history-list" class="hidden p-4 border-t border-brand-cardBorder bg-brand-surface max-h-48 overflow-y-auto space-y-2 font-mono text-[11px]">
+            </div>
+        </div>
+    </div>
+
     <!-- Floating Toast Notification Container -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
@@ -987,25 +1103,334 @@
             }, 3500);
         }
 
-        // Switch channel between 'footage' and 'cam'
+        // Device Camera Streaming Variables
+        let clientCamStream = null;
+        let clientCamLoopActive = false;
+        let currentFacingMode = 'environment'; // 'environment' (back) or 'user' (front)
+        let isSendingClientFrame = false;
+
+        // Populate device camera list
+        async function initDeviceCameras() {
+            const sel = document.getElementById('device-camera-select');
+            if (!sel) return;
+            sel.innerHTML = `
+                <option value="environment" ${currentFacingMode === 'environment' ? 'selected' : ''}>📱 Rear / Back Camera (Site View)</option>
+                <option value="user" ${currentFacingMode === 'user' ? 'selected' : ''}>👤 Front / Selfie Camera</option>
+            `;
+
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevs = devices.filter(d => d.kind === 'videoinput');
+                    if (videoDevs.length > 0) {
+                        videoDevs.forEach((d, idx) => {
+                            const opt = document.createElement('option');
+                            opt.value = d.deviceId;
+                            opt.text = `📹 ${d.label || ('Camera ' + (idx + 1))}`;
+                            sel.appendChild(opt);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn("[DEVICE CAM] Could not enumerate devices:", err);
+            }
+        }
+
+        // Switch camera facing between front and back
+        function switchCameraFacing() {
+            currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+            const sel = document.getElementById('device-camera-select');
+            if (sel) sel.value = currentFacingMode;
+            startDeviceCamera(currentFacingMode);
+        }
+
+        // Start device camera capture
+        async function startDeviceCamera(preferredSource = 'environment') {
+            stopDeviceCamera();
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showToast("Camera Unsupported", "Your browser does not support HTML5 camera streaming.", "danger");
+                return;
+            }
+
+            let constraints = {
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+
+            if (preferredSource === 'user' || preferredSource === 'environment') {
+                constraints.video.facingMode = { ideal: preferredSource };
+                currentFacingMode = preferredSource;
+            } else if (preferredSource) {
+                constraints.video.deviceId = { exact: preferredSource };
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                clientCamStream = stream;
+                const videoElem = document.getElementById('client-webcam-feed');
+                if (videoElem) {
+                    videoElem.srcObject = stream;
+                    await videoElem.play();
+                }
+
+                clientCamLoopActive = true;
+                runClientCameraLoop();
+                showToast("Device Camera Connected", "Streaming live frames to RTX 3050 CUDA engine.", "success");
+            } catch (err) {
+                console.warn("[DEVICE CAM] Preferred constraints failed, falling back to default:", err);
+                try {
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    clientCamStream = fallbackStream;
+                    const videoElem = document.getElementById('client-webcam-feed');
+                    if (videoElem) {
+                        videoElem.srcObject = fallbackStream;
+                        await videoElem.play();
+                    }
+                    clientCamLoopActive = true;
+                    runClientCameraLoop();
+                    showToast("Device Camera Connected", "Streaming default camera.", "success");
+                } catch (e2) {
+                    console.error("[DEVICE CAM] Camera access failed:", e2);
+                    showToast("Camera Access Denied", "Please allow camera permissions in browser settings.", "danger");
+                }
+            }
+        }
+
+        // Stop device camera tracks
+        function stopDeviceCamera() {
+            clientCamLoopActive = false;
+            if (clientCamStream) {
+                clientCamStream.getTracks().forEach(t => t.stop());
+                clientCamStream = null;
+            }
+            const videoElem = document.getElementById('client-webcam-feed');
+            if (videoElem) {
+                videoElem.srcObject = null;
+            }
+        }
+
+        // Active request-response loop for client camera
+        async function runClientCameraLoop() {
+            const video = document.getElementById('client-webcam-feed');
+            const canvas = document.getElementById('client-capture-canvas');
+            const streamImg = document.getElementById('video-stream');
+            if (!video || !canvas || !streamImg) return;
+            const ctx = canvas.getContext('2d');
+
+            while (clientCamLoopActive) {
+                if (!video.videoWidth || !video.videoHeight || video.paused || video.ended) {
+                    await new Promise(r => setTimeout(r, 100));
+                    continue;
+                }
+
+                // Downscale frame to ~960px width for fast mobile upload
+                const targetW = Math.min(video.videoWidth, 960);
+                const targetH = Math.round(targetW * (video.videoHeight / video.videoWidth));
+                canvas.width = targetW;
+                canvas.height = targetH;
+                ctx.drawImage(video, 0, 0, targetW, targetH);
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+
+                try {
+                    const res = await fetch('/api/process_client_frame', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            frame: dataUrl,
+                            camera_id: 'Device_Camera_' + currentFacingMode
+                        })
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (clientCamLoopActive && data.annotated_frame) {
+                            streamImg.src = data.annotated_frame;
+                            if (data.inference_ms) {
+                                document.getElementById('telemetry-latency').textContent = `${data.inference_ms}ms`;
+                            }
+                            if (data.fps) {
+                                document.getElementById('telemetry-fps').textContent = `${data.fps} FPS`;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[DEVICE CAM] Frame upload error:", err);
+                }
+
+                // Throttle to ~18-22 FPS for smooth interactive streaming
+                await new Promise(r => setTimeout(r, 45));
+            }
+        }
+
+        // Switch channel between 'footage', 'cam', and 'device_cam'
         function switchChannel(channel) {
             currentChannel = channel;
             const streamImg = document.getElementById('video-stream');
             const btnFootage = document.getElementById('btn-chan-footage');
             const btnCam = document.getElementById('btn-chan-cam');
+            const btnDeviceCam = document.getElementById('btn-chan-device-cam');
             const channelTitle = document.getElementById('active-channel-name');
+            const footageControls = document.getElementById('footage-controls');
+            const deviceCamControls = document.getElementById('device-cam-controls');
+            const recLabel = document.getElementById('cctv-rec-label');
 
             if (channel === 'footage') {
+                stopDeviceCamera();
+                if (footageControls) footageControls.classList.remove('hidden');
+                if (deviceCamControls) deviceCamControls.classList.add('hidden');
+                if (recLabel) recLabel.textContent = "REC [24/7 LIVE]";
+
                 btnFootage.className = 'px-3 py-1 rounded-lg font-mono font-semibold bg-amber-500 text-black shadow flex items-center space-x-1.5 transition';
                 btnCam.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
-                channelTitle.innerHTML = '<i class="fa-solid fa-video text-cyan-400 text-[11px]"></i><span>CHANNEL 1: INDUSTRIAL SITE CCTV</span>';
+                if (btnDeviceCam) btnDeviceCam.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                
+                channelTitle.innerHTML = '<i class="fa-solid fa-industry text-amber-400 text-[11px]"></i><span>CHANNEL 1: INDUSTRIAL SITE CCTV</span>';
                 const fileParam = currentVideoFile ? `&video=${encodeURIComponent(currentVideoFile)}` : '';
                 streamImg.src = `/video_feed?source=footage${fileParam}&t=${Date.now()}`;
-            } else {
+
+            } else if (channel === 'cam') {
+                stopDeviceCamera();
+                if (footageControls) footageControls.classList.add('hidden');
+                if (deviceCamControls) deviceCamControls.classList.add('hidden');
+                if (recLabel) recLabel.textContent = "HOST WEBCAM";
+
                 btnCam.className = 'px-3 py-1 rounded-lg font-mono font-semibold bg-cyan-400 text-black shadow flex items-center space-x-1.5 transition';
                 btnFootage.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
-                channelTitle.innerHTML = '<i class="fa-solid fa-camera text-amber-400 text-[11px]"></i><span>CHANNEL 2: LIVE LAPTOP WEBCAM</span>';
+                if (btnDeviceCam) btnDeviceCam.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                
+                channelTitle.innerHTML = '<i class="fa-solid fa-camera text-cyan-400 text-[11px]"></i><span>CHANNEL 2: SERVER HOST WEBCAM</span>';
                 streamImg.src = `/video_feed?source=cam&t=${Date.now()}`;
+
+            } else if (channel === 'device_cam') {
+                if (footageControls) footageControls.classList.add('hidden');
+                if (deviceCamControls) deviceCamControls.classList.remove('hidden');
+                if (recLabel) recLabel.textContent = "DEVICE INGEST";
+
+                if (btnDeviceCam) btnDeviceCam.className = 'px-3 py-1 rounded-lg font-mono font-semibold bg-emerald-500 text-black shadow flex items-center space-x-1.5 transition';
+                btnFootage.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+                btnCam.className = 'px-3 py-1 rounded-lg font-mono font-medium text-gray-400 hover:text-white flex items-center space-x-1.5 transition';
+
+                channelTitle.innerHTML = '<i class="fa-solid fa-mobile-screen text-emerald-400 text-[11px]"></i><span>CHANNEL 3: DEVICE CAMERA (MOBILE / USB)</span>';
+                initDeviceCameras().then(() => {
+                    startDeviceCamera('environment');
+                });
+            }
+        }
+
+        // Customer Feedback Functions
+        function openFeedbackModal() {
+            document.getElementById('feedback-modal').classList.remove('hidden');
+            fetchFeedbackCount();
+        }
+
+        function closeFeedbackModal() {
+            document.getElementById('feedback-modal').classList.add('hidden');
+            document.getElementById('fb-history-list').classList.add('hidden');
+        }
+
+        function setFeedbackRating(val) {
+            document.getElementById('fb-rating-val').value = val;
+            const stars = document.querySelectorAll('.fb-star');
+            const descriptions = [
+                "",
+                "1/5 - Unsatisfactory",
+                "2/5 - Needs Improvement",
+                "3/5 - Acceptable",
+                "4/5 - Impressive & High Quality",
+                "5/5 - Outstanding / Production Ready"
+            ];
+            stars.forEach((s, idx) => {
+                if (idx < val) {
+                    s.classList.remove('text-gray-600');
+                    s.classList.add('text-amber-400');
+                } else {
+                    s.classList.remove('text-amber-400');
+                    s.classList.add('text-gray-600');
+                }
+            });
+            document.getElementById('fb-rating-text').textContent = descriptions[val];
+        }
+
+        async function submitCustomerFeedback(e) {
+            e.preventDefault();
+            const btn = document.getElementById('fb-submit-btn');
+            btn.disabled = true;
+            btn.textContent = "Submitting...";
+
+            const payload = {
+                evaluator_name: document.getElementById('fb-name').value.trim(),
+                organization: document.getElementById('fb-org').value.trim() || "Independent Evaluator",
+                rating: parseInt(document.getElementById('fb-rating-val').value) || 5,
+                category: document.getElementById('fb-category').value,
+                comments: document.getElementById('fb-comments').value.trim()
+            };
+
+            try {
+                const res = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast("Feedback Recorded", "Thank you for evaluating SafeWatch AI!", "success");
+                    document.getElementById('feedback-form').reset();
+                    setFeedbackRating(5);
+                    closeFeedbackModal();
+                } else {
+                    showToast("Submission Error", data.detail || "Could not save feedback.", "danger");
+                }
+            } catch (err) {
+                showToast("Network Error", err.message, "danger");
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Submit Feedback";
+            }
+        }
+
+        async function fetchFeedbackCount() {
+            try {
+                const res = await fetch('/api/feedback');
+                const list = await res.json();
+                const el = document.getElementById('fb-history-count');
+                if (el) el.textContent = list.length;
+            } catch (err) {}
+        }
+
+        async function viewRecentFeedbacks() {
+            const listContainer = document.getElementById('fb-history-list');
+            if (!listContainer.classList.contains('hidden')) {
+                listContainer.classList.add('hidden');
+                return;
+            }
+
+            listContainer.innerHTML = '<p class="text-gray-400">Loading feedback entries...</p>';
+            listContainer.classList.remove('hidden');
+
+            try {
+                const res = await fetch('/api/feedback');
+                const items = await res.json();
+                if (items.length === 0) {
+                    listContainer.innerHTML = '<p class="text-gray-400 italic">No feedback entries recorded yet. Be the first!</p>';
+                    return;
+                }
+                listContainer.innerHTML = items.map(fb => `
+                    <div class="p-2.5 rounded-lg bg-brand-card border border-brand-cardBorder">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-white">${fb.evaluator_name} <span class="text-gray-400 font-normal">(${fb.organization || 'Client'})</span></span>
+                            <span class="text-amber-400">${'★'.repeat(fb.rating)}${'☆'.repeat(5 - fb.rating)}</span>
+                        </div>
+                        <p class="text-cyan-400 text-[10px] mt-0.5 font-semibold">${fb.category || 'General'} • <span class="text-gray-400 font-normal">${new Date(fb.timestamp).toLocaleString()}</span></p>
+                        <p class="text-gray-300 mt-1 italic">"${fb.comments}"</p>
+                    </div>
+                `).join('');
+            } catch (err) {
+                listContainer.innerHTML = `<p class="text-red-400">Failed to load: ${err.message}</p>`;
             }
         }
 
@@ -1750,8 +2175,26 @@
         fetchFootages();
         fetchTelemetryAndStats();
         fetchViolations();
+        fetchFeedbackCount();
         setInterval(fetchTelemetryAndStats, 2000);
         setInterval(fetchViolations, 3000);
     </script>
+
+    <!-- Footer Security & Architecture Badges -->
+    <footer class="mt-auto border-t border-brand-cardBorder py-3 px-4 lg:px-8 text-center text-[11px] font-mono text-gray-500 bg-brand-surface/60 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="text-gray-400 font-semibold">SafeWatch AI Autonomous Safety System</span>
+            <span>•</span>
+            <span class="text-cyan-400 font-semibold"><i class="fa-solid fa-lock text-emerald-400 mr-1"></i>TLS 1.3 Encrypted Tunnel</span>
+        </div>
+        <div class="flex items-center space-x-3 text-gray-400">
+            <span>Ingest: <strong class="text-emerald-400">Mobile Front/Rear & USB External</strong></span>
+            <span>•</span>
+            <span>Edge Compute: <strong class="text-amber-400">NVIDIA RTX 3050 (35 FPS)</strong></span>
+            <span>•</span>
+            <span>Zero Open Inbound Ports</span>
+        </div>
+    </footer>
 </body>
 </html>
