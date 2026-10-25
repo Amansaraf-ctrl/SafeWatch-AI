@@ -18,6 +18,7 @@ from yolox.data.data_augment import ValTransform
 
 from face_recognizer import FaceRecognitionSystem
 from db_logger import log_violation_to_db, SNAPSHOTS_DIR
+from trainer import global_learner
 
 # SafeWatch AI: Strict 5-Class Target Mapping
 CLASSES = ["Helmet", "No_helmet", "Safety_shoes", "No_SafetyShoes", "Person"]
@@ -231,6 +232,63 @@ def verify_industrial_hard_hat(head_crop, yolo_score=0.5):
     return False, "BASEBALL_CAP"
 
 
+def detect_white_safety_helmet(head_crop):
+    """
+    Specifically detects White Industrial Safety Helmets (Supervisors / Engineers Hard Hats).
+    White hard hats have:
+    1. Smooth polymer dome in upper 65% of head crop.
+    2. Neutral white / off-white reflectance:
+       - High value (brightness V >= 120, Gray >= 120)
+       - Low saturation (S <= 60)
+       - Balanced RGB channels (|R-G| < 35, |R-B| < 35, |G-B| < 35)
+    3. Significant coverage (> 14% of upper head region).
+    4. Smooth curvature without high texturing (Laplacian variance < 700).
+    """
+    if head_crop is None or head_crop.size == 0:
+        return False, 0.0
+
+    h, w = head_crop.shape[:2]
+    if h < 14 or w < 14:
+        return False, 0.0
+
+    # Upper 65% represents the helmet dome sitting on the head
+    dome = head_crop[:max(int(h * 0.65), 10), :]
+    dh, dw = dome.shape[:2]
+    if dh < 8 or dw < 8:
+        return False, 0.0
+
+    # 1. HSV analysis
+    hsv = cv2.cvtColor(dome, cv2.COLOR_BGR2HSV)
+    s_ch = hsv[:, :, 1]
+    v_ch = hsv[:, :, 2]
+
+    # 2. BGR neutral white balance
+    b_ch = dome[:, :, 0].astype(np.int16)
+    g_ch = dome[:, :, 1].astype(np.int16)
+    r_ch = dome[:, :, 2].astype(np.int16)
+
+    is_neutral = (np.abs(r_ch - g_ch) < 35) & (np.abs(r_ch - b_ch) < 35) & (np.abs(g_ch - b_ch) < 35)
+    is_white = (s_ch <= 60) & (v_ch >= 120) & is_neutral
+
+    white_ratio = float(np.mean(is_white))
+
+    # 3. Surface texture (helmets have smooth polymer surface, unlike curly hair or knit caps)
+    gray = cv2.cvtColor(dome, cv2.COLOR_BGR2GRAY)
+    lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+    # If bright white dome covers > 14% of the upper head with smooth surface:
+    if white_ratio >= 0.14 and lap_var < 750:
+        conf = min(0.95, round(0.72 + white_ratio * 0.7, 2))
+        return True, conf
+
+    # Under very bright daylight (over-exposure / specular highlights)
+    if white_ratio >= 0.22:
+        conf = min(0.95, round(0.75 + white_ratio * 0.6, 2))
+        return True, conf
+
+    return False, 0.0
+
+
 def is_valid_human_subject(person_crop, head_crop, face_system, score=0.5, has_helmet=False):
     """
     Distinguishes genuine living human workers from non-human objects:
@@ -375,7 +433,13 @@ class PPEDetector:
         
         self.face_system = FaceRecognitionSystem()
         self.tracker = SpatialWorkerTracker(max_disappeared=75, re_alert_interval=180.0)
+        self.custom_learner = global_learner
         self.frame_count = 0
+
+    def reload_calibrated_weights(self):
+        """Hot-reloads custom fine-tuned weights directly into running GPU engine."""
+        self.custom_learner.load_weights()
+        print("[PPE DETECTOR] Hot-reloaded custom fine-tuned weights successfully!")
 
     def detect(self, frame, camera_id="Cam_01", save_snapshots=True):
         """
@@ -493,6 +557,19 @@ class PPEDetector:
             frame_verdict = "UNCERTAIN"
             matched_head_ppe = None
 
+            # --- SPECIALIZED WHITE SAFETY HELMET & FINE-TUNED AI HEADWEAR DETECTION ---
+            head_crop = frame[max(0, head_box[1]):min(orig_h, head_box[3]), max(0, head_box[0]):min(orig_w, head_box[2])]
+            is_white_helm, white_helm_score = detect_white_safety_helmet(head_crop)
+            custom_pred, custom_score = self.custom_learner.predict(head_crop)
+
+            if is_white_helm or custom_pred in ("white_helmet", "standard_helmet"):
+                white_score_val = max(white_helm_score, custom_score if (custom_score and custom_score > 0.5) else 0.88)
+                white_box = [px1, max(0, py1 - int(ph * 0.10)), px2, py1 + int(ph * 0.32)]
+                best_helmet = {"bbox": white_box, "score": white_score_val, "class_name": "Helmet"}
+                best_helmet_score = white_score_val
+                # Decisively suppress false No_helmet on worker's face below the white helmet
+                best_no_helmet = None
+
             if best_helmet is not None and best_no_helmet is not None:
                 # Both detected on head: Helmet takes priority unless No_helmet is overwhelmingly dominant
                 if best_helmet_score >= best_no_helmet_score - 0.15:
@@ -512,7 +589,6 @@ class PPEDetector:
 
             elif best_no_helmet is not None:
                 # Explicit No_helmet requires score >= 0.48 AND confirmed face or skin tone presence
-                head_crop = frame[max(0, head_box[1]):min(orig_h, head_box[3]), max(0, head_box[0]):min(orig_w, head_box[2])]
                 has_skin_or_face = False
                 if head_crop.size > 0:
                     ycrcb = cv2.cvtColor(head_crop, cv2.COLOR_BGR2YCrCb)

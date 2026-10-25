@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import torch
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
@@ -26,6 +26,7 @@ from db_logger import (
     SNAPSHOTS_DIR
 )
 from face_recognizer import DEFAULT_KNOWN_DIR
+from trainer import global_learner, TRAINING_DIR, CATEGORIES
 
 app = FastAPI(title="SafeWatch AI - Enterprise Industrial Safety Command")
 
@@ -81,6 +82,7 @@ FOOTAGE_DIR.mkdir(parents=True, exist_ok=True)
 # Mount static asset routes
 app.mount("/snapshots", StaticFiles(directory=str(SNAPSHOTS_DIR)), name="snapshots")
 app.mount("/known_faces", StaticFiles(directory=str(KNOWN_FACES_DIR)), name="known_faces")
+app.mount("/training_data", StaticFiles(directory=str(TRAINING_DIR)), name="training_data")
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -511,6 +513,88 @@ async def submit_feedback(data: CustomerFeedbackRequest, request: Request):
 async def list_feedback():
     """Returns past customer feedback records."""
     return get_customer_feedbacks(limit=50)
+
+
+# ==========================================
+# CUSTOM AI MODEL TRAINING & FEW-SHOT API
+# ==========================================
+
+@app.get("/api/training/dataset")
+async def get_training_dataset():
+    """Returns uploaded training images summary and counts."""
+    return global_learner.get_dataset_summary()
+
+
+@app.post("/api/training/upload")
+async def upload_training_images(category: str = Form(...), files: List[UploadFile] = File(...)):
+    """
+    Uploads custom site images to train/fine-tune the model (e.g. White Safety Helmets).
+    Supports multiple files simultaneously with size guards.
+    """
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category}. Choose from: {CATEGORIES}")
+
+    uploaded_samples = []
+    for file in files:
+        safe_name = sanitize_filename(file.filename)
+        content = await file.read()
+        if len(content) > MAX_IMAGE_SIZE:
+            continue
+        try:
+            res = global_learner.add_sample(category, content, safe_name)
+            uploaded_samples.append(res)
+        except Exception as e:
+            print(f"[TRAINING UPLOAD ERROR] {e}")
+
+    return {
+        "success": True,
+        "category": category,
+        "uploaded_count": len(uploaded_samples),
+        "samples": uploaded_samples,
+        "dataset_summary": global_learner.get_dataset_summary()
+    }
+
+
+class TrainRequest(BaseModel):
+    epochs: Optional[int] = 10
+    learning_rate: Optional[float] = 0.001
+
+
+@app.post("/api/training/train")
+async def train_model(payload: TrainRequest = TrainRequest()):
+    """
+    Executes PyTorch fine-tuning on the user-uploaded training dataset (e.g. White Helmets).
+    Hot-reloads the newly trained weights into the running detector on NVIDIA RTX 3050 CUDA!
+    """
+    try:
+        epochs = max(1, min(50, payload.epochs or 10))
+        lr = max(1e-5, min(0.01, payload.learning_rate or 0.001))
+        train_result = global_learner.run_training(epochs=epochs, lr=lr)
+
+        # Hot-reload the trained weights into PPEDetector immediately!
+        detector.reload_calibrated_weights()
+
+        return {
+            "success": True,
+            "message": train_result["message"],
+            "epochs": train_result["epochs"],
+            "final_accuracy": train_result["final_accuracy"],
+            "final_loss": train_result["final_loss"],
+            "elapsed_seconds": train_result["elapsed_seconds"],
+            "history": train_result["history"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/training/sample/{category}/{filename}")
+async def delete_training_sample(category: str, filename: str):
+    """Deletes an uploaded training sample."""
+    safe_name = sanitize_filename(filename)
+    ok = global_learner.delete_sample(category, safe_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Sample not found.")
+    return {"success": True, "dataset_summary": global_learner.get_dataset_summary()}
 
 
 if __name__ == "__main__":

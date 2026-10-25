@@ -29,6 +29,8 @@ custom_footage/*
 !custom_footage/.gitkeep
 known_faces/*
 !known_faces/.gitkeep
+training_data/*
+!training_data/*/.gitkeep
 
 # Logs and Checkpoints
 *.log
