@@ -14,7 +14,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -81,11 +81,25 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 KNOWN_FACES_DIR.mkdir(parents=True, exist_ok=True)
 SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 FOOTAGE_DIR.mkdir(parents=True, exist_ok=True)
+REPORTS_DIR = BASE_DIR / "static" / "reports"
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Mount static asset routes
 app.mount("/snapshots", StaticFiles(directory=str(SNAPSHOTS_DIR)), name="snapshots")
 app.mount("/known_faces", StaticFiles(directory=str(KNOWN_FACES_DIR)), name="known_faces")
 app.mount("/training_data", StaticFiles(directory=str(TRAINING_DIR)), name="training_data")
+app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
+
+@app.get("/download/report")
+async def download_report():
+    pdf_path = BASE_DIR / "SafeWatch_AI_Enterprise_Market_Strategy_Report.pdf"
+    if pdf_path.exists():
+        return FileResponse(
+            path=str(pdf_path),
+            filename="SafeWatch_AI_Enterprise_Market_Strategy_Report.pdf",
+            media_type="application/pdf"
+        )
+    raise HTTPException(status_code=404, detail="Report PDF not found")
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
