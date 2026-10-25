@@ -1345,7 +1345,8 @@
             }
         }
 
-        // Active request-response loop for client camera
+        // Active request-response loop for client camera (optimized for zero-lag streaming)
+        let isSendingClientFrame = false;
         async function runClientCameraLoop() {
             const video = document.getElementById('client-webcam-feed');
             const canvas = document.getElementById('client-capture-canvas');
@@ -1354,19 +1355,20 @@
             const ctx = canvas.getContext('2d');
 
             while (clientCamLoopActive) {
-                if (!video.videoWidth || !video.videoHeight || video.paused || video.ended) {
-                    await new Promise(r => setTimeout(r, 100));
+                if (!video.videoWidth || !video.videoHeight || video.paused || video.ended || isSendingClientFrame) {
+                    await new Promise(r => setTimeout(r, 20));
                     continue;
                 }
 
-                // Downscale frame to ~960px width for fast mobile upload
-                const targetW = Math.min(video.videoWidth, 960);
+                // Ultra low-latency target resolution: 640px width at quality 0.62 (<25KB payload)
+                const targetW = Math.min(video.videoWidth, 640);
                 const targetH = Math.round(targetW * (video.videoHeight / video.videoWidth));
                 canvas.width = targetW;
                 canvas.height = targetH;
                 ctx.drawImage(video, 0, 0, targetW, targetH);
 
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.62);
+                isSendingClientFrame = true;
 
                 try {
                     const res = await fetch('/api/process_client_frame', {
@@ -1392,10 +1394,12 @@
                     }
                 } catch (err) {
                     console.warn("[DEVICE CAM] Frame upload error:", err);
+                } finally {
+                    isSendingClientFrame = false;
                 }
 
-                // Throttle to ~18-22 FPS for smooth interactive streaming
-                await new Promise(r => setTimeout(r, 45));
+                // Fast responsive frame cadence for smooth 25+ FPS
+                await new Promise(r => setTimeout(r, 15));
             }
         }
 

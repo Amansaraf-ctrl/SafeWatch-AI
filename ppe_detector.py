@@ -25,6 +25,7 @@ CLASSES = ["Helmet", "No_helmet", "Safety_shoes", "No_SafetyShoes", "Person"]
 
 CLASS_COLORS = {
     "Helmet": (0, 220, 0),          # Green
+    "Helmet_In_Hand": (0, 140, 255),# Orange (Warning: In Hand, Not Worn)
     "No_helmet": (0, 0, 255),        # Red
     "Safety_shoes": (0, 200, 0),     # Green
     "No_SafetyShoes": (0, 140, 255), # Orange
@@ -316,12 +317,11 @@ def is_valid_human_subject(person_crop, head_crop, face_system, score=0.5, has_h
     if has_helmet:
         return True
 
-    # 1. Face detection in upper region
+    # 1. Face detection in upper region (ultra-fast check)
     if head_crop is not None and head_crop.size > 0:
         hh, hw = head_crop.shape[:2]
         if hh >= 20 and hw >= 20:
-            face_result = face_system.recognize_in_crop(head_crop)
-            if face_result and face_result.get("face_box") is not None:
+            if face_system.has_face(head_crop):
                 return True
 
             # 2. Skin tone analysis in head/neck
@@ -384,10 +384,12 @@ class SpatialWorkerTracker:
                 "conf": 0.0,
                 "last_time": 0.0,
                 "face_res": None,
+                "last_face_time": 0.0,
                 # Anti-flicker temporal state
                 "helmet_state": "UNCERTAIN",
                 "consecutive_helmet": 0,
                 "consecutive_no_helmet": 0,
+                "consecutive_in_hand": 0,
                 "violation_confirmed": False,
                 "violation_frames": 0,
                 "recent_votes": []
@@ -524,17 +526,45 @@ class PPEDetector:
         # Run spatial tracker across validated human workers
         tracked_workers = self.tracker.update(detected_person_boxes)
 
+        # SELECT AT MOST ONE WORKER PER FRAME FOR BIOMETRIC SFace VERIFICATION
+        # Distributes face matching round-robin to eliminate inference latency spikes and maintain 30+ FPS!
+        target_face_tid = None
+        # Priority 1: Unidentified worker that hasn't been scanned in the last 0.8s
+        for tid, track, _ in tracked_workers:
+            if track["name"] in ("Unidentified Worker", "Unknown Worker"):
+                if now - track.get("last_face_time", 0.0) >= 0.8:
+                    target_face_tid = tid
+                    break
+
+        # Priority 2: Enrolled worker periodic re-check (every 5 seconds)
+        if target_face_tid is None:
+            oldest_time = now - 5.0
+            for tid, track, _ in tracked_workers:
+                if track["name"] not in ("Unidentified Worker", "Unknown Worker"):
+                    if track.get("last_face_time", 0.0) < oldest_time:
+                        oldest_time = track.get("last_face_time", 0.0)
+                        target_face_tid = tid
+
         for tid, track, pbox in tracked_workers:
             px1, py1, px2, py2 = pbox
             pw = px2 - px1
             ph = py2 - py1
             
-            head_box = [px1, max(0, py1 - int(ph * 0.12)), px2, py1 + int(ph * 0.38)]
+            # ANATOMICAL ZONES:
+            # 1. Worn Head Zone: strictly head & neck above collarbones (top 22% of body)
+            worn_head_box = [max(0, px1 - int(pw * 0.10)), max(0, py1 - int(ph * 0.12)), min(orig_w, px2 + int(pw * 0.10)), py1 + int(ph * 0.22)]
+            # 2. Hand & Torso Zone: chest, arms, hands, hip region (22% to 82% of body)
+            hand_torso_box = [max(0, px1 - int(pw * 0.35)), py1 + int(ph * 0.20), min(orig_w, px2 + int(pw * 0.35)), py1 + int(ph * 0.82)]
+            # 3. Feet Zone: bottom 35% of body
             feet_box = [px1, py1 + int(ph * 0.65), px2, py2]
 
-            # --- STEP 2: HEADWEAR ANALYSIS WITH MUTUAL EXCLUSION & HELMET BIAS ---
-            best_helmet = None
-            best_helmet_score = 0.0
+            # --- STEP 2: HEADWEAR VS HELMET-IN-HAND ANALYSIS ---
+            best_worn_helmet = None
+            best_worn_helmet_score = 0.0
+
+            best_held_helmet = None
+            best_held_helmet_score = 0.0
+
             best_no_helmet = None
             best_no_helmet_score = 0.0
 
@@ -542,14 +572,34 @@ class PPEDetector:
                 p_box = ppe["bbox"]
                 p_cls = ppe["class_name"]
                 p_score = ppe["score"]
+                by_center = (p_box[1] + p_box[3]) / 2.0
+                bx_center = (p_box[0] + p_box[2]) / 2.0
 
-                if p_cls in ("Helmet", "No_helmet"):
-                    overlap = box_containment(p_box, head_box) > 0.22 or box_iou(p_box, head_box) > 0.07
-                    if overlap:
-                        if p_cls == "Helmet" and p_score > best_helmet_score:
-                            best_helmet = ppe
-                            best_helmet_score = p_score
-                        elif p_cls == "No_helmet" and p_score > best_no_helmet_score:
+                if p_cls == "Helmet":
+                    # Check Case A: Worn on Head
+                    # Helmet center MUST be in the head region (<= py1 + 0.22 ph) and top near head top
+                    is_worn_center = (by_center <= py1 + int(ph * 0.22)) and (p_box[1] <= py1 + int(ph * 0.14))
+                    has_head_overlap = (box_containment(p_box, worn_head_box) > 0.18 or box_iou(p_box, worn_head_box) > 0.06)
+
+                    if is_worn_center and has_head_overlap:
+                        if p_score > best_worn_helmet_score:
+                            best_worn_helmet = ppe
+                            best_worn_helmet_score = p_score
+
+                    # Check Case B: Held in Hand / Carried on Torso
+                    elif by_center > py1 + int(ph * 0.22) and by_center <= py1 + int(ph * 0.85):
+                        has_hand_overlap = (box_containment(p_box, hand_torso_box) > 0.18 or box_iou(p_box, hand_torso_box) > 0.05 or
+                                           (p_box[0] < px2 + int(pw * 0.30) and p_box[2] > px1 - int(pw * 0.30)))
+                        if has_hand_overlap:
+                            if p_score > best_held_helmet_score:
+                                best_held_helmet = ppe
+                                best_held_helmet_score = p_score
+
+                elif p_cls == "No_helmet":
+                    # No_helmet is only relevant if located on the head!
+                    if by_center <= py1 + int(ph * 0.25):
+                        overlap = box_containment(p_box, worn_head_box) > 0.18 or box_iou(p_box, worn_head_box) > 0.06
+                        if overlap and p_score > best_no_helmet_score:
                             best_no_helmet = ppe
                             best_no_helmet_score = p_score
 
@@ -558,49 +608,58 @@ class PPEDetector:
             matched_head_ppe = None
 
             # --- SPECIALIZED WHITE SAFETY HELMET & FINE-TUNED AI HEADWEAR DETECTION ---
-            head_crop = frame[max(0, head_box[1]):min(orig_h, head_box[3]), max(0, head_box[0]):min(orig_w, head_box[2])]
+            # Strictly crop head region (py1 - 0.10 ph to py1 + 0.22 ph) so torso/hand is NEVER included!
+            head_top_y = max(0, py1 - int(ph * 0.10))
+            head_bot_y = min(orig_h, py1 + int(ph * 0.22))
+            head_crop = frame[head_top_y:head_bot_y, max(0, px1):min(orig_w, px2)]
+
             is_white_helm, white_helm_score = detect_white_safety_helmet(head_crop)
             custom_pred, custom_score = self.custom_learner.predict(head_crop)
 
             if is_white_helm or custom_pred in ("white_helmet", "standard_helmet"):
                 white_score_val = max(white_helm_score, custom_score if (custom_score and custom_score > 0.5) else 0.88)
-                white_box = [px1, max(0, py1 - int(ph * 0.10)), px2, py1 + int(ph * 0.32)]
-                best_helmet = {"bbox": white_box, "score": white_score_val, "class_name": "Helmet"}
-                best_helmet_score = white_score_val
-                # Decisively suppress false No_helmet on worker's face below the white helmet
+                white_box = [px1, max(0, py1 - int(ph * 0.08)), px2, py1 + int(ph * 0.20)]
+                best_worn_helmet = {"bbox": white_box, "score": white_score_val, "class_name": "Helmet"}
+                best_worn_helmet_score = white_score_val
+                # Suppress false No_helmet on worker's face below white helmet
                 best_no_helmet = None
 
-            if best_helmet is not None and best_no_helmet is not None:
-                # Both detected on head: Helmet takes priority unless No_helmet is overwhelmingly dominant
-                if best_helmet_score >= best_no_helmet_score - 0.15:
+            # DECIDE SINGLE-FRAME HEADWEAR COMPLIANCE:
+            if best_worn_helmet is not None:
+                # Worn helmet has strong precedence
+                if best_no_helmet is None or best_worn_helmet_score >= best_no_helmet_score - 0.15:
                     frame_verdict = "HELMET"
-                    matched_head_ppe = best_helmet
-                elif best_no_helmet_score >= 0.65 and best_helmet_score < 0.35:
+                    matched_head_ppe = best_worn_helmet
+                elif best_no_helmet_score >= 0.70 and best_worn_helmet_score < 0.32:
                     frame_verdict = "NO_HELMET"
                     matched_head_ppe = best_no_helmet
                 else:
                     frame_verdict = "HELMET"
-                    matched_head_ppe = best_helmet
+                    matched_head_ppe = best_worn_helmet
 
-            elif best_helmet is not None:
-                if best_helmet_score >= 0.35:
-                    frame_verdict = "HELMET"
-                    matched_head_ppe = best_helmet
+            elif best_held_helmet is not None:
+                # CRITICAL SAFETY VIOLATION: Worker is carrying helmet in hand / tucked under arm, NOT worn!
+                frame_verdict = "HELMET_IN_HAND"
+                # Mark held helmet with distinct warning class
+                matched_head_ppe = {
+                    "bbox": best_held_helmet["bbox"],
+                    "score": best_held_helmet["score"],
+                    "class_name": "Helmet_In_Hand"
+                }
 
             elif best_no_helmet is not None:
-                # Explicit No_helmet requires score >= 0.48 AND confirmed face or skin tone presence
                 has_skin_or_face = False
                 if head_crop.size > 0:
                     ycrcb = cv2.cvtColor(head_crop, cv2.COLOR_BGR2YCrCb)
                     skin_cr = ycrcb[:, :, 1]
                     skin_cb = ycrcb[:, :, 2]
                     skin_mask = (skin_cr >= 133) & (skin_cr <= 173) & (skin_cb >= 77) & (skin_cb <= 127)
-                    if float(np.mean(skin_mask)) >= 0.035:
+                    if float(np.mean(skin_mask)) >= 0.030:
                         has_skin_or_face = True
                     elif track.get("face_res") and track["face_res"].get("face_box") is not None:
                         has_skin_or_face = True
 
-                if best_no_helmet_score >= 0.48 and has_skin_or_face:
+                if best_no_helmet_score >= 0.44 and has_skin_or_face:
                     frame_verdict = "NO_HELMET"
                     matched_head_ppe = best_no_helmet
 
@@ -614,26 +673,31 @@ class PPEDetector:
             if frame_verdict == "HELMET":
                 track["consecutive_helmet"] += 1
                 track["consecutive_no_helmet"] = 0
+                track["consecutive_in_hand"] = 0
                 if track["consecutive_helmet"] >= 3:
                     track["helmet_state"] = "HELMET"
                     track["violation_confirmed"] = False
                     track["violation_frames"] = 0
 
-            elif frame_verdict == "NO_HELMET":
+            elif frame_verdict in ("NO_HELMET", "HELMET_IN_HAND"):
                 track["consecutive_no_helmet"] += 1
                 track["consecutive_helmet"] = 0
+                if frame_verdict == "HELMET_IN_HAND":
+                    track["consecutive_in_hand"] = track.get("consecutive_in_hand", 0) + 1
+                else:
+                    track["consecutive_in_hand"] = 0
 
                 # Anti-flicker: If the person was confirmed wearing a helmet,
-                # do NOT switch to NO_HELMET on momentary jitter!
-                # Require at least 8 consecutive frames of No_helmet and 65%+ recent votes!
+                # do NOT switch on momentary occlusion. Require sustained confirmation.
                 if track["helmet_state"] == "HELMET":
-                    recent_no_pct = track["recent_votes"].count("NO_HELMET") / max(len(track["recent_votes"]), 1)
-                    if track["consecutive_no_helmet"] >= 8 and recent_no_pct >= 0.65:
-                        track["helmet_state"] = "NO_HELMET"
+                    recent_viol_cnt = sum(1 for v in track["recent_votes"] if v in ("NO_HELMET", "HELMET_IN_HAND"))
+                    recent_viol_pct = recent_viol_cnt / max(len(track["recent_votes"]), 1)
+                    if track["consecutive_no_helmet"] >= 7 and recent_viol_pct >= 0.60:
+                        track["helmet_state"] = "HELMET_IN_HAND" if (track.get("consecutive_in_hand", 0) >= 3) else "NO_HELMET"
                         track["violation_confirmed"] = True
                 else:
-                    if track["consecutive_no_helmet"] >= 4:
-                        track["helmet_state"] = "NO_HELMET"
+                    if track["consecutive_no_helmet"] >= 3:
+                        track["helmet_state"] = "HELMET_IN_HAND" if (track.get("consecutive_in_hand", 0) >= 2) else "NO_HELMET"
                         track["violation_confirmed"] = True
 
             elif frame_verdict == "UNCERTAIN":
@@ -679,7 +743,9 @@ class PPEDetector:
 
             # --- STEP 5: COMPLIANCE & VIOLATION ASSESSMENT ---
             missing_items = []
-            if track["helmet_state"] == "NO_HELMET" and track["violation_confirmed"]:
+            if track["helmet_state"] == "HELMET_IN_HAND" and track["violation_confirmed"]:
+                missing_items.append("Helmet in Hand (Not Worn on Head)")
+            elif track["helmet_state"] == "NO_HELMET" and track["violation_confirmed"]:
                 missing_items.append("No Helmet")
 
             if has_no_shoes_flag:
@@ -690,20 +756,40 @@ class PPEDetector:
             # Attach verified PPE items to draw list
             if track["helmet_state"] == "HELMET" and matched_head_ppe and matched_head_ppe["class_name"] == "Helmet":
                 final_ppe_to_draw.append(matched_head_ppe)
+            elif track["helmet_state"] == "HELMET_IN_HAND" and track["violation_confirmed"]:
+                # Draw orange box on held helmet
+                if matched_head_ppe and matched_head_ppe["class_name"] == "Helmet_In_Hand":
+                    final_ppe_to_draw.append(matched_head_ppe)
+                # Also draw red No_helmet indicator on the bare head
+                bare_head_box = [px1, max(0, py1 - int(ph * 0.08)), px2, py1 + int(ph * 0.18)]
+                final_ppe_to_draw.append({"bbox": bare_head_box, "score": 0.88, "class_name": "No_helmet"})
             elif track["helmet_state"] == "NO_HELMET" and track["violation_confirmed"] and matched_head_ppe and matched_head_ppe["class_name"] == "No_helmet":
                 final_ppe_to_draw.append(matched_head_ppe)
+
+            # If worker is wearing a helmet but also holding a second helmet, draw held helmet as informational warning
+            if track["helmet_state"] == "HELMET" and best_held_helmet is not None:
+                final_ppe_to_draw.append({
+                    "bbox": best_held_helmet["bbox"],
+                    "score": best_held_helmet["score"],
+                    "class_name": "Helmet_In_Hand"
+                })
 
             if matched_foot_ppe:
                 final_ppe_to_draw.append(matched_foot_ppe)
 
-            # Identity Recognition Cadence
-            needs_face_id = (track["name"] in ("Unidentified Worker", "Unknown Worker")) or (self.frame_count % 8 == 0)
-            if needs_face_id:
+            # Identity Recognition Cadence (Round-Robin Execution: at most ONE per frame)
+            if tid == target_face_tid:
                 person_crop = frame[py1:py2, px1:px2]
                 face_result = self.face_system.recognize_in_crop(person_crop)
-                track["name"] = face_result["name"]
-                track["conf"] = face_result["confidence"]
-                track["face_res"] = face_result
+                track["last_face_time"] = now
+                if face_result and face_result["name"] not in ("Unidentified Worker", "Unknown Worker"):
+                    track["name"] = face_result["name"]
+                    track["conf"] = face_result["confidence"]
+                    track["face_res"] = face_result
+                elif track["name"] in ("Unidentified Worker", "Unknown Worker"):
+                    track["name"] = face_result["name"]
+                    track["conf"] = face_result["confidence"]
+                    track["face_res"] = face_result
 
             worker_name = track["name"]
             face_conf = track["conf"]

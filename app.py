@@ -185,7 +185,9 @@ def generate_frames(source="footage", video_file=None):
             try:
                 while True:
                     t0 = time.time()
-                    ret, frame = cap.read()
+                    # Grab & retrieve flushes any stale buffer frames for zero lag
+                    cap.grab()
+                    ret, frame = cap.retrieve()
                     if not ret:
                         time.sleep(0.01)
                         continue
@@ -195,7 +197,7 @@ def generate_frames(source="footage", video_file=None):
                     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
                     active_stream_state["last_fps"] = round(1000.0 / max(infer_ms, 1.0), 1)
 
-                    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 68])
                     if ret_enc:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -212,7 +214,7 @@ def generate_frames(source="footage", video_file=None):
             # Standby screen awaiting user footage
             while True:
                 standby = make_standby_frame()
-                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                 time.sleep(0.1)
@@ -233,10 +235,10 @@ def generate_frames(source="footage", video_file=None):
                             time.sleep(0.1)
                             continue
 
-                    # Downscale 4K / large frames for smooth 30+ FPS playback
+                    # Downscale 4K / large frames to 960px max dimension for smooth real-time processing
                     h, w, _ = frame.shape
-                    if max(h, w) > 1280:
-                        scale = 1280 / max(h, w)
+                    if max(h, w) > 960:
+                        scale = 960.0 / max(h, w)
                         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
                     annotated, _ = detector.detect(frame, camera_id=f"Zone_{target_file}", save_snapshots=True)
@@ -244,7 +246,14 @@ def generate_frames(source="footage", video_file=None):
                     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
                     active_stream_state["last_fps"] = round(1000.0 / max(infer_ms, 1.0), 1)
 
-                    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
+                    # Downscale display output to max 854 (480p) to eradicate network latency over tunnels/mobile
+                    stream_disp = annotated
+                    ah, aw = annotated.shape[:2]
+                    if max(ah, aw) > 854:
+                        scale_disp = 854.0 / max(ah, aw)
+                        stream_disp = cv2.resize(annotated, (int(aw * scale_disp), int(ah * scale_disp)), interpolation=cv2.INTER_AREA)
+
+                    ret_enc, buffer = cv2.imencode('.jpg', stream_disp, [cv2.IMWRITE_JPEG_QUALITY, 68])
                     if ret_enc:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -454,10 +463,10 @@ async def process_client_frame(data: ClientFrameRequest):
     if frame is None:
         raise HTTPException(status_code=400, detail="Unable to decode frame.")
 
-    # Downscale high-res frames to max 1280px for guaranteed 30+ FPS low latency
+    # Downscale high-res frames to max 854px for guaranteed 30+ FPS low latency
     h, w = frame.shape[:2]
-    if max(h, w) > 1280:
-        scale = 1280.0 / max(h, w)
+    if max(h, w) > 854:
+        scale = 854.0 / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
     cam_id = sanitize_filename(data.camera_id or "Device_Cam")
@@ -468,7 +477,8 @@ async def process_client_frame(data: ClientFrameRequest):
     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
     active_stream_state["last_fps"] = fps
 
-    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    # Encode with optimized quality 66 for rapid mobile delivery (<30ms network round-trip)
+    ret_enc, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 66])
     if not ret_enc:
         raise HTTPException(status_code=500, detail="Frame compression failure.")
 

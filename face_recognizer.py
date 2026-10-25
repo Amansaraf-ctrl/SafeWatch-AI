@@ -116,6 +116,20 @@ class FaceRecognitionSystem:
         self.reload_enrolled_faces()
         return True, f"Successfully removed {clean_name}"
 
+    def has_face(self, crop):
+        """
+        Ultra-fast face presence verification (YuNet detection only).
+        Avoids alignment and SFace feature extraction overhead.
+        """
+        if crop is None or crop.size == 0:
+            return False
+        h, w = crop.shape[:2]
+        if h < 16 or w < 16:
+            return False
+        self.detector.setInputSize((w, h))
+        _, faces = self.detector.detect(crop)
+        return faces is not None and len(faces) > 0
+
     def recognize_in_crop(self, person_crop):
         """
         Detects and recognizes the face inside a cropped Person bounding box.
