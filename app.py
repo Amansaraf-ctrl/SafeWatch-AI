@@ -5,6 +5,7 @@ import csv
 import time
 import base64
 import datetime
+import threading
 import cv2
 import numpy as np
 import torch
@@ -157,6 +158,8 @@ def make_standby_frame(w=1280, h=720, message="AWAITING SITE FOOTAGE"):
     return img
 
 
+camera_lock = threading.Lock()
+
 def generate_frames(source="footage", video_file=None):
     """
     Video streaming generator for MJPEG multipart responses.
@@ -166,35 +169,49 @@ def generate_frames(source="footage", video_file=None):
       3. Standby test screen when awaiting footage
     """
     if source == "cam":
-        # Windows DirectShow backend for zero buffer latency
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
+        cap = None
+        try:
+            with camera_lock:
+                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(0)
+        except Exception as e:
+            print(f"[WEBCAM INIT ERROR] {e}")
+            cap = None
 
-        if not cap.isOpened():
+        if cap is None or not cap.isOpened():
             # If camera 0 cannot be opened, stream standby graphic
-            while True:
-                standby = make_standby_frame(message="CAMERA 0 UNAVAILABLE // SWITCH TO FOOTAGE")
-                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 75])
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(0.1)
-        else:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 30)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             try:
                 while True:
+                    standby = make_standby_frame(message="CAMERA 0 UNAVAILABLE // SWITCH TO FOOTAGE")
+                    ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    time.sleep(0.1)
+            except GeneratorExit:
+                pass
+            except Exception as e:
+                print(f"[STANDBY STREAM ERROR] {e}")
+        else:
+            try:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 30)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+                while True:
                     t0 = time.time()
-                    # Grab & retrieve flushes any stale buffer frames for zero lag
-                    cap.grab()
-                    ret, frame = cap.retrieve()
-                    if not ret:
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
                         time.sleep(0.01)
                         continue
 
-                    annotated, _ = detector.detect(frame, camera_id="Cam_01_Webcam", save_snapshots=True)
+                    try:
+                        annotated, _ = detector.detect(frame, camera_id="Cam_01_Webcam", save_snapshots=True)
+                    except Exception as det_err:
+                        print(f"[CAM DETECT ERROR] {det_err}")
+                        annotated = frame
+
                     infer_ms = (time.time() - t0) * 1000
                     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
                     active_stream_state["last_fps"] = round(1000.0 / max(infer_ms, 1.0), 1)
@@ -207,33 +224,45 @@ def generate_frames(source="footage", video_file=None):
                     elapsed = time.time() - t0
                     sleep_time = max(0.001, 0.033 - elapsed)
                     time.sleep(sleep_time)
+            except GeneratorExit:
+                pass
+            except Exception as e:
+                print(f"[WEBCAM STREAM ERROR] {e}")
             finally:
-                cap.release()
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
 
     elif source == "footage":
         footages = get_available_footages()
         if not footages:
-            # Standby screen awaiting user footage
-            while True:
-                standby = make_standby_frame()
-                ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(0.1)
+            try:
+                while True:
+                    standby = make_standby_frame()
+                    ret_enc, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    time.sleep(0.1)
+            except GeneratorExit:
+                pass
+            except Exception as e:
+                print(f"[STANDBY STREAM ERROR] {e}")
         else:
             target_file = video_file if (video_file and video_file in footages) else footages[0]
             video_path = str(FOOTAGE_DIR / target_file)
-            cap = cv2.VideoCapture(video_path)
-
+            cap = None
             try:
+                cap = cv2.VideoCapture(video_path)
                 while True:
                     t0 = time.time()
                     ret, frame = cap.read()
-                    if not ret:
+                    if not ret or frame is None:
                         # Loop video back to start seamlessly
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         ret, frame = cap.read()
-                        if not ret:
+                        if not ret or frame is None:
                             time.sleep(0.1)
                             continue
 
@@ -243,7 +272,12 @@ def generate_frames(source="footage", video_file=None):
                         scale = 960.0 / max(h, w)
                         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-                    annotated, _ = detector.detect(frame, camera_id=f"Zone_{target_file}", save_snapshots=True)
+                    try:
+                        annotated, _ = detector.detect(frame, camera_id=f"Zone_{target_file}", save_snapshots=True)
+                    except Exception as det_err:
+                        print(f"[FOOTAGE DETECT ERROR] {det_err}")
+                        annotated = frame
+
                     infer_ms = (time.time() - t0) * 1000
                     active_stream_state["last_inference_ms"] = round(infer_ms, 1)
                     active_stream_state["last_fps"] = round(1000.0 / max(infer_ms, 1.0), 1)
@@ -264,8 +298,16 @@ def generate_frames(source="footage", video_file=None):
                     elapsed = time.time() - t0
                     sleep_time = max(0.01, 0.033 - elapsed)
                     time.sleep(sleep_time)
+            except GeneratorExit:
+                pass
+            except Exception as e:
+                print(f"[FOOTAGE STREAM ERROR] {e}")
             finally:
-                cap.release()
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
 
 
 @app.get("/", response_class=HTMLResponse)
